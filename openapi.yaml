@@ -238,6 +238,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PhotoAnalysisError"
+        "503":
+          description: Local engine is unavailable, busy, or timed out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoAnalysisError"
   /api/health:
     get:
       operationId: health
@@ -4948,6 +4954,9 @@ components:
             - invalid_photo
             - invalid_engine_response
             - engine_error
+            - engine_unavailable
+            - engine_busy
+            - engine_timeout
         issues: *a3
         message:
           type: string

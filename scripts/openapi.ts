@@ -124,6 +124,7 @@ const specification = {
           415: response('Unsupported media type', { $ref: '#/components/schemas/PhotoAnalysisError' }),
           422: response('Invalid photo manifest or original file', { $ref: '#/components/schemas/PhotoAnalysisError' }),
           502: response('Analysis engine failure or invalid output', { $ref: '#/components/schemas/PhotoAnalysisError' }),
+          503: response('Local engine is unavailable, busy, or timed out', { $ref: '#/components/schemas/PhotoAnalysisError' }),
         },
       },
     },
@@ -153,7 +154,7 @@ const specification = {
         properties: {
           ...error.properties,
           error: { type: 'string', enum: ['invalid_body', 'cross_site_request', 'request_too_large', 'unsupported_media_type',
-            'invalid_photo_list', 'invalid_photo', 'invalid_engine_response', 'engine_error'] },
+            'invalid_photo_list', 'invalid_photo', 'invalid_engine_response', 'engine_error', 'engine_unavailable', 'engine_busy', 'engine_timeout'] },
           message: { type: 'string' },
         },
       },
