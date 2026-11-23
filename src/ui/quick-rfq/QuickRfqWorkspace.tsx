@@ -26,6 +26,7 @@ import {
   addPhotosToSnapshot,
   addPlacementToProject,
   issuesMatching,
+  orderedPhotos,
   pruneExcessPlacements,
   removeComponentFromProject,
   removePhotoFromSnapshot,
@@ -38,20 +39,48 @@ import {
   validateProject,
   type RfqApiError,
 } from './helpers';
+import { requestPhotoAnalysis } from '@/photo-analysis/client';
 import { MountingSection } from './MountingSection';
+import { PhotoAnalysisPanel, type PhotoAnalysisStatus } from './PhotoAnalysisPanel';
 import { PhotoManager } from './PhotoManager';
 import { ProjectLibraryModal } from './ProjectLibraryModal';
 import { RfqPreviewPanel, type PreviewTab } from './RfqPreviewPanel';
+import {
+  applyEmptySuggestions,
+  applyPhotoSuggestion,
+  createPreviewDemoSuggestions,
+  formatPhotoAnalysisError,
+  isAbortError,
+  syncSelectedPhotoIds,
+  type AnalyzedPhoto,
+  type PhotoAnalysisMode,
+  type PhotoAnalysisProvider,
+  type PhotoAnalysisUiError,
+  type PhotoSuggestion,
+  type PhotoSuggestionEditOverride,
+} from './photoAnalysis';
 
 const productTypeKeys = Object.keys(productTypes) as ProductType[];
 const currencies: Project['currency'][] = ['USD', 'EUR', 'CNY'];
 const units: Unit[] = ['mm', 'cm', 'm'];
 
+const defaultPhotoAnalysisProvider: PhotoAnalysisProvider = {
+  label: 'LIGHT FORGE',
+  analyze: ({ snapshot, photoIds, signal }) => requestPhotoAnalysis(snapshot, photoIds, signal),
+};
+
 function createInitialSnapshot(): ProjectSnapshot {
   return { project: createMyline(), originals: {} };
 }
 
-export function QuickRfqWorkspace() {
+type QuickRfqWorkspaceProps = {
+  /** Photo-analysis API provider (defaults to LIGHT FORGE /api/photo-analysis via @/photo-analysis/client). */
+  photoAnalysisProvider?: PhotoAnalysisProvider | null;
+};
+
+export function QuickRfqWorkspace({
+  photoAnalysisProvider = defaultPhotoAnalysisProvider,
+}: QuickRfqWorkspaceProps = {}) {
   const [snapshot, setSnapshot] = useState<ProjectSnapshot>(() => createInitialSnapshot());
   const [linkedComposition, setLinkedComposition] = useState<Composition | undefined>(undefined);
   const [activeComponentId, setActiveComponentId] = useState<string>(() => snapshot.project.components[0].id);
@@ -71,6 +100,24 @@ export function QuickRfqWorkspace() {
   const [lastSavedFingerprint, setLastSavedFingerprint] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
+
+  // Step 2: Photo Analysis state wired to /api/photo-analysis v1 contract
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>(() =>
+    snapshot.project.photos.map(photo => photo.id),
+  );
+  const [analysisStatus, setAnalysisStatus] = useState<PhotoAnalysisStatus>('idle');
+  const [analysisMode, setAnalysisMode] = useState<PhotoAnalysisMode | null>(null);
+  const [analyzedPhotos, setAnalyzedPhotos] = useState<AnalyzedPhoto[]>([]);
+  const [lastAnalyzedKey, setLastAnalyzedKey] = useState<string | null>(null);
+  const [analysisCancelledNotice, setAnalysisCancelledNotice] = useState<string | null>(null);
+  const [analysisError, setAnalysisError] = useState<PhotoAnalysisUiError | null>(null);
+  const [analysisSummary, setAnalysisSummary] = useState<string | null>(null);
+  const [analysisWarnings, setAnalysisWarnings] = useState<string[]>([]);
+  const [analysisSuggestions, setAnalysisSuggestions] = useState<PhotoSuggestion[]>([]);
+  const [analysisPreviewDemo, setAnalysisPreviewDemo] = useState<boolean>(false);
+  const [analysisStepSkipped, setAnalysisStepSkipped] = useState<boolean>(false);
+  const analysisAbortRef = useRef<AbortController | null>(null);
+  const analysisRequestIdRef = useRef<number>(0);
 
   // Object URLs for uploaded photo thumbnails/previews — revoked cleanly on change/unmount
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
@@ -152,6 +199,7 @@ export function QuickRfqWorkspace() {
     return () => {
       pdfAbortRef.current?.abort();
       textAbortRef.current?.abort();
+      analysisAbortRef.current?.abort();
       if (pdfUrlRef.current) {
         URL.revokeObjectURL(pdfUrlRef.current);
         pdfUrlRef.current = null;
@@ -376,6 +424,226 @@ export function QuickRfqWorkspace() {
     setPreviewTab('sheet');
   }, [replacePdfUrl]);
 
+  const orderedSelectedPhotoIds = useMemo(() => {
+    const selectedSet = new Set(selectedPhotoIds);
+    return orderedPhotos(snapshot.project)
+      .filter(photo => selectedSet.has(photo.id))
+      .map(photo => photo.id);
+  }, [selectedPhotoIds, snapshot.project]);
+
+  const currentSelectedKey = orderedSelectedPhotoIds.join(',');
+  const analysisSelectionStale =
+    Boolean(lastAnalyzedKey) && lastAnalyzedKey !== currentSelectedKey;
+
+  const cancelInFlightAnalysis = useCallback((notice?: string) => {
+    const hadInFlight = Boolean(analysisAbortRef.current);
+    analysisRequestIdRef.current += 1;
+    analysisAbortRef.current?.abort();
+    analysisAbortRef.current = null;
+    if (hadInFlight) {
+      setAnalysisStatus('idle');
+      setAnalysisError(null);
+      if (notice) {
+        setAnalysisCancelledNotice(notice);
+      }
+    }
+    return hadInFlight;
+  }, []);
+
+  const resetPhotoAnalysis = useCallback((nextSelectedIds: string[] = []) => {
+    analysisRequestIdRef.current += 1;
+    analysisAbortRef.current?.abort();
+    analysisAbortRef.current = null;
+    setSelectedPhotoIds(nextSelectedIds);
+    setAnalysisStatus('idle');
+    setAnalysisMode(null);
+    setAnalyzedPhotos([]);
+    setLastAnalyzedKey(null);
+    setAnalysisCancelledNotice(null);
+    setAnalysisError(null);
+    setAnalysisSummary(null);
+    setAnalysisWarnings([]);
+    setAnalysisSuggestions([]);
+    setAnalysisPreviewDemo(false);
+    setAnalysisStepSkipped(false);
+  }, []);
+
+  const handleTogglePhotoSelection = useCallback(
+    (photoId: string) => {
+      const wasLoading = cancelInFlightAnalysis(
+        'Запрос анализа отменён из-за изменения выбранных фотографий.',
+      );
+      if (!wasLoading) setAnalysisCancelledNotice(null);
+      setSelectedPhotoIds(current => {
+        const exists = current.includes(photoId);
+        const next = exists ? current.filter(id => id !== photoId) : [...current, photoId];
+        return syncSelectedPhotoIds(next, snapshot.project.photos);
+      });
+    },
+    [cancelInFlightAnalysis, snapshot.project.photos],
+  );
+
+  const handleSelectAllPhotos = useCallback(() => {
+    const wasLoading = cancelInFlightAnalysis(
+      'Запрос анализа отменён из-за изменения выбранных фотографий.',
+    );
+    if (!wasLoading) setAnalysisCancelledNotice(null);
+    setSelectedPhotoIds(snapshot.project.photos.map(photo => photo.id));
+  }, [cancelInFlightAnalysis, snapshot.project.photos]);
+
+  const handleClearPhotoSelection = useCallback(() => {
+    const wasLoading = cancelInFlightAnalysis(
+      'Запрос анализа отменён: выбор фотографий снят.',
+    );
+    if (!wasLoading) setAnalysisCancelledNotice(null);
+    setSelectedPhotoIds([]);
+  }, [cancelInFlightAnalysis]);
+
+  const handleCancelPhotoAnalysis = useCallback(() => {
+    const cancelled = cancelInFlightAnalysis(
+      'Запрос анализа отменён. Вы можете изменить выбор фото или запустить анализ снова.',
+    );
+    if (cancelled) {
+      showToast('Запрос анализа фото отменён');
+    }
+  }, [cancelInFlightAnalysis, showToast]);
+
+  const handleRunPhotoAnalysis = useCallback(async () => {
+    if (!photoAnalysisProvider) return;
+    if (orderedSelectedPhotoIds.length === 0) return;
+
+    analysisAbortRef.current?.abort();
+    const controller = new AbortController();
+    analysisAbortRef.current = controller;
+    const requestId = ++analysisRequestIdRef.current;
+    const requestKey = orderedSelectedPhotoIds.join(',');
+
+    setAnalysisStatus('loading');
+    setAnalysisError(null);
+    setAnalysisCancelledNotice(null);
+    setAnalysisSummary(null);
+    setAnalysisWarnings([]);
+    setAnalysisPreviewDemo(false);
+
+    try {
+      const response = await photoAnalysisProvider.analyze({
+        snapshot,
+        photoIds: orderedSelectedPhotoIds,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || analysisRequestIdRef.current !== requestId) return;
+      analysisAbortRef.current = null;
+      setAnalysisMode(response.mode);
+      setAnalyzedPhotos(response.photos);
+      setLastAnalyzedKey(requestKey);
+      setAnalysisSuggestions(
+        response.suggestions.map(item => ({
+          ...item,
+          status: 'pending' as const,
+        })),
+      );
+      setAnalysisSummary(response.summary ?? null);
+      setAnalysisWarnings(response.warnings ?? []);
+      setAnalysisStatus('ready');
+      if (response.mode === 'metadata_only') {
+        showToast(`Проверены метаданные ${response.photos.length} фото · распознавание ещё не подключено`);
+      } else {
+        showToast(`Получено подсказок по фото: ${response.suggestions.length}`);
+      }
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        analysisRequestIdRef.current !== requestId ||
+        isAbortError(error)
+      ) {
+        return;
+      }
+      analysisAbortRef.current = null;
+      setAnalysisError(formatPhotoAnalysisError(error));
+      setAnalysisStatus('error');
+    }
+  }, [orderedSelectedPhotoIds, photoAnalysisProvider, showToast, snapshot]);
+
+  const handleLoadPreviewDemo = useCallback(() => {
+    const photos = orderedPhotos(snapshot.project);
+    const primaryId = orderedSelectedPhotoIds[0] ?? photos[0]?.id;
+    setAnalysisSuggestions(createPreviewDemoSuggestions(snapshot.project, primaryId));
+    setAnalysisError(null);
+    setAnalysisCancelledNotice(null);
+    setAnalysisSummary(null);
+    setAnalysisWarnings([]);
+    setAnalysisPreviewDemo(true);
+    setAnalysisStatus('ready');
+    showToast('Открыт демо-просмотр интерфейса подсказок');
+  }, [orderedSelectedPhotoIds, showToast, snapshot.project]);
+
+  const handleAcceptSuggestion = useCallback(
+    (id: string): { ok: boolean; error?: string } => {
+      const target = analysisSuggestions.find(item => item.id === id);
+      if (!target) return { ok: false, error: 'Подсказка не найдена.' };
+      const result = applyPhotoSuggestion(snapshot.project, target, undefined, unit);
+      if (!result.ok) return { ok: false, error: result.error };
+      setSnapshot(current => ({ ...current, project: result.project }));
+      setAnalysisSuggestions(current =>
+        current.map(item =>
+          item.id === id
+            ? { ...item, status: 'accepted', appliedSummary: result.appliedSummary }
+            : item,
+        ),
+      );
+      showToast('Подсказка принята и добавлена в форму (Оценка)');
+      return { ok: true };
+    },
+    [analysisSuggestions, showToast, snapshot.project, unit],
+  );
+
+  const handleEditSuggestion = useCallback(
+    (id: string, override: PhotoSuggestionEditOverride): { ok: boolean; error?: string } => {
+      const target = analysisSuggestions.find(item => item.id === id);
+      if (!target) return { ok: false, error: 'Подсказка не найдена.' };
+      const result = applyPhotoSuggestion(snapshot.project, target, override, unit);
+      if (!result.ok) return { ok: false, error: result.error };
+      setSnapshot(current => ({ ...current, project: result.project }));
+      setAnalysisSuggestions(current =>
+        current.map(item =>
+          item.id === id
+            ? { ...item, status: 'edited', appliedSummary: result.appliedSummary }
+            : item,
+        ),
+      );
+      showToast('Изменённое значение применено к форме');
+      return { ok: true };
+    },
+    [analysisSuggestions, showToast, snapshot.project, unit],
+  );
+
+  const handleSkipSuggestion = useCallback((id: string) => {
+    setAnalysisSuggestions(current =>
+      current.map(item => (item.id === id ? { ...item, status: 'skipped' } : item)),
+    );
+  }, []);
+
+  const handleRestoreSuggestion = useCallback((id: string) => {
+    setAnalysisSuggestions(current =>
+      current.map(item =>
+        item.id === id ? { ...item, status: 'pending', appliedSummary: undefined } : item,
+      ),
+    );
+  }, []);
+
+  const handleAcceptAllEmpty = useCallback(() => {
+    const result = applyEmptySuggestions(snapshot.project, analysisSuggestions, unit);
+    if (result.appliedCount === 0) {
+      showToast('Нет незаполненных полей для автоматического применения');
+      return;
+    }
+    setSnapshot(current => ({ ...current, project: result.project }));
+    setAnalysisSuggestions(result.suggestions);
+    const protectedPart =
+      result.protectedCount > 0 ? ` · Ручных полей защищено: ${result.protectedCount}` : '';
+    showToast(`Применено к пустым полям: ${result.appliedCount}${protectedPart}`);
+  }, [analysisSuggestions, showToast, snapshot.project, unit]);
+
   const loadSnapshotIntoWorkspace = useCallback(
     (next: ProjectSnapshot, message: string) => {
       setSnapshot(next);
@@ -391,9 +659,10 @@ export function QuickRfqWorkspace() {
       );
       setNotesOpen(Boolean(next.project.notes));
       resetPreviewOutputs();
+      resetPhotoAnalysis(next.project.photos.map(photo => photo.id));
       showToast(message);
     },
-    [resetPreviewOutputs, showToast],
+    [resetPhotoAnalysis, resetPreviewOutputs, showToast],
   );
 
   const handleOpenSavedProject = useCallback(
@@ -611,22 +880,83 @@ export function QuickRfqWorkspace() {
             onDismissUploadErrors={() => setUploadErrors([])}
             apiPhotoError={apiPhotoError}
             onAddFiles={files => {
+              const prevIds = new Set(snapshot.project.photos.map(photo => photo.id));
               const result = addPhotosToSnapshot(snapshot, files);
               setSnapshot(result.snapshot);
               setUploadErrors(result.errors);
-              if (result.snapshot.project.photos.length > snapshot.project.photos.length) {
+              const addedIds = result.snapshot.project.photos
+                .filter(photo => !prevIds.has(photo.id))
+                .map(photo => photo.id);
+              if (addedIds.length > 0) {
+                cancelInFlightAnalysis('Запрос анализа отменён: добавлены новые фотографии.');
+                setSelectedPhotoIds(current =>
+                  syncSelectedPhotoIds(current, result.snapshot.project.photos, addedIds),
+                );
                 showToast('Оригиналы фотографий добавлены');
               }
             }}
-            onRemovePhoto={photoId => setSnapshot(current => removePhotoFromSnapshot(current, photoId))}
+            onRemovePhoto={photoId => {
+              const nextSnapshot = removePhotoFromSnapshot(snapshot, photoId);
+              setSnapshot(nextSnapshot);
+              if (selectedPhotoIds.includes(photoId)) {
+                cancelInFlightAnalysis('Запрос анализа отменён: удалено выбранное фото.');
+              }
+              setSelectedPhotoIds(current => syncSelectedPhotoIds(current, nextSnapshot.project.photos));
+              if (nextSnapshot.project.photos.length === 0) {
+                resetPhotoAnalysis([]);
+              }
+            }}
             onSelectPrimary={photoId => setSnapshot(current => setPrimaryPhoto(current, photoId))}
           />
 
-          {/* Step 2: Order & Core Project Parameters */}
+          {/* Step 2: Photo Analysis & Suggestion Review (/api/photo-analysis v1) */}
+          <PhotoAnalysisPanel
+            snapshot={snapshot}
+            photoUrls={photoUrls}
+            unit={unit}
+            provider={photoAnalysisProvider}
+            selectedPhotoIds={selectedPhotoIds}
+            onTogglePhotoSelection={handleTogglePhotoSelection}
+            onSelectAllPhotos={handleSelectAllPhotos}
+            onClearPhotoSelection={handleClearPhotoSelection}
+            status={analysisStatus}
+            mode={analysisMode}
+            analyzedPhotos={analyzedPhotos}
+            selectionStale={analysisSelectionStale}
+            cancelledNotice={analysisCancelledNotice}
+            error={analysisError}
+            summaryNote={analysisSummary}
+            warnings={analysisWarnings}
+            suggestions={analysisSuggestions}
+            isPreviewDemo={analysisPreviewDemo}
+            stepSkipped={analysisStepSkipped}
+            onRunAnalysis={() => void handleRunPhotoAnalysis()}
+            onCancelAnalysis={handleCancelPhotoAnalysis}
+            onLoadPreviewDemo={handleLoadPreviewDemo}
+            onClearSuggestions={() => {
+              setAnalysisSuggestions([]);
+              setAnalysisPreviewDemo(false);
+              setAnalysisError(null);
+              setAnalysisStatus(analysisMode ? 'ready' : 'idle');
+            }}
+            onSkipStep={() => {
+              cancelInFlightAnalysis();
+              setAnalysisStepSkipped(true);
+              showToast('Шаг анализа фото пропущен');
+            }}
+            onRestoreStep={() => setAnalysisStepSkipped(false)}
+            onAcceptSuggestion={handleAcceptSuggestion}
+            onEditSuggestion={handleEditSuggestion}
+            onSkipSuggestion={handleSkipSuggestion}
+            onRestoreSuggestion={handleRestoreSuggestion}
+            onAcceptAllEmpty={handleAcceptAllEmpty}
+          />
+
+          {/* Step 3: Order & Core Project Parameters */}
           <section className="lf-card" aria-labelledby="project-heading">
             <div className="lf-card-header">
               <div className="lf-card-title-wrap">
-                <span className="lf-card-eyebrow">Шаг 2 · Заказ и тип изделия</span>
+                <span className="lf-card-eyebrow">Шаг 3 · Заказ и тип изделия</span>
                 <h1 id="project-heading" className="lf-card-title">
                   Основные параметры запроса
                 </h1>
@@ -803,7 +1133,7 @@ export function QuickRfqWorkspace() {
             issues={combinedIssues}
           />
 
-          {/* Step 5: Notes & Quick CTA Footer */}
+          {/* Step 6: Notes & Quick CTA Footer */}
           <section className="lf-card" aria-labelledby="notes-heading">
             <button
               id="lf-notes-toggle"
@@ -813,7 +1143,7 @@ export function QuickRfqWorkspace() {
               onClick={() => setNotesOpen(prev => !prev)}
             >
               <div className="lf-card-title-wrap">
-                <span className="lf-card-eyebrow">Шаг 5 · Комментарий фабрике</span>
+                <span className="lf-card-eyebrow">Шаг 6 · Комментарий фабрике</span>
                 <h2 id="notes-heading" className="lf-card-title">
                   Дополнительные примечания
                 </h2>

@@ -192,3 +192,21 @@ export function SparkIcon(props: IconProps) {
     </Icon>
   );
 }
+
+export function EditIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z" />
+    </Icon>
+  );
+}
+
+export function SkipIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m5 5 8 7-8 7V5Z" />
+      <path d="M19 5v14" />
+    </Icon>
+  );
+}
