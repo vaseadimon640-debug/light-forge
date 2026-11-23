@@ -313,6 +313,9 @@ export function GeometryWorkspace() {
         </div>
 
         <div className="lfg-actions">
+          <a href="/" target="_blank" rel="noopener" className="lfg-btn lfg-btn--sm" title="Открыть Quick RFQ в новой вкладке">
+            Quick RFQ
+          </a>
           <button
             id="lfg-preset-myline"
             type="button"
