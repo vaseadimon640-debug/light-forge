@@ -18,7 +18,10 @@ import {
   addCanopyToComposition,
   addElementToComposition,
   addSuspensionToComposition,
+  cloneCompositionWithNewId,
+  removeCanopyExitFromComposition,
   removeCanopyFromComposition,
+  removeElementAttachmentFromComposition,
   removeElementFromComposition,
   resolveCompositionViaApi,
   safeResolveLocal,
@@ -77,6 +80,7 @@ export function GeometryWorkspace() {
   const [showAxes, setShowAxes] = useState<boolean>(true);
   const [showDimensions, setShowDimensions] = useState<boolean>(true);
   const [showRoomPlanes, setShowRoomPlanes] = useState<boolean>(true);
+  const [compactViewport, setCompactViewport] = useState<boolean>(false);
 
   // Server API verification & IndexedDB storage
   const [apiStatus, setApiStatus] = useState<{ state: 'idle' | 'checking' | 'ok' | 'error'; message: string }>({
@@ -91,12 +95,22 @@ export function GeometryWorkspace() {
 
   const captureRef = useRef<(() => string | null) | null>(null);
   const lastValidResolvedRef = useRef<ResolvedComposition | null>(null);
+  const loadedSavedIdRef = useRef<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToast(null), 3000);
+    toastTimerRef.current = setTimeout(() => setToast(null), 3200);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    const sync = () => setCompactViewport(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
   }, []);
 
   useEffect(() => {
@@ -111,6 +125,7 @@ export function GeometryWorkspace() {
   }
   const activeResolved = localResult.resolved ?? lastValidResolvedRef.current;
   const activeIssues = localResult.issues.length > 0 ? localResult.issues : apiIssues;
+  const compNameErr = activeIssues.find(issue => issue.path.length === 1 && issue.path[0] === 'name')?.message;
 
   const materialPreset =
     visualMaterialPresets.find(preset => preset.id === materialId) ?? visualMaterialPresets[0];
@@ -131,7 +146,8 @@ export function GeometryWorkspace() {
   }, []);
 
   const loadComposition = useCallback(
-    (next: Composition, message: string) => {
+    (next: Composition, message: string, openedSavedId: string | null = null) => {
+      loadedSavedIdRef.current = openedSavedId;
       setComposition(next);
       const firstEl = next.elements[0]?.id ?? '';
       setSelectedElementId(firstEl);
@@ -189,25 +205,44 @@ export function GeometryWorkspace() {
     }
   }, [showToast]);
 
-  const handleSave = useCallback(async () => {
-    if (localResult.issues.length > 0) {
-      showToast('Устраните ошибки схемы перед сохранением');
-      setActiveTab('levels');
-      return;
-    }
-    try {
-      const store = await openCompositionStore();
-      try {
-        await store.save(composition);
-        setSavedItems(await store.list());
-        showToast(`Композиция «${composition.name}» сохранена в IndexedDB`);
-      } finally {
-        store.close();
+  const handleSave = useCallback(
+    async (forceNewCopy = false) => {
+      if (localResult.issues.length > 0) {
+        showToast('Устраните ошибки схемы перед сохранением');
+        setActiveTab('levels');
+        return;
       }
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Ошибка сохранения композиции');
-    }
-  }, [composition, localResult.issues.length, showToast]);
+      try {
+        const store = await openCompositionStore();
+        try {
+          let toSave = composition;
+          let savedAsCopyMessage: string | null = null;
+          if (forceNewCopy) {
+            toSave = cloneCompositionWithNewId(composition);
+            savedAsCopyMessage = `Сохранена новая копия «${toSave.name}» (${toSave.id})`;
+          } else {
+            const existing = await store.get(composition.id);
+            if (existing && loadedSavedIdRef.current !== composition.id) {
+              toSave = cloneCompositionWithNewId(composition);
+              savedAsCopyMessage = `Сохранено с новым ID (${toSave.id}), предыдущая «${existing.composition.name}» сохранена`;
+            }
+          }
+          await store.save(toSave);
+          loadedSavedIdRef.current = toSave.id;
+          if (toSave.id !== composition.id) {
+            setComposition(toSave);
+          }
+          setSavedItems(await store.list());
+          showToast(savedAsCopyMessage ?? `Композиция «${toSave.name}» сохранена в IndexedDB`);
+        } finally {
+          store.close();
+        }
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Ошибка сохранения композиции');
+      }
+    },
+    [composition, localResult.issues.length, showToast],
+  );
 
   const handleOpenSaved = useCallback(
     async (id: string) => {
@@ -216,7 +251,11 @@ export function GeometryWorkspace() {
         try {
           const record = await store.get(id);
           if (record) {
-            loadComposition(record.composition, `Открыта композиция «${record.composition.name}»`);
+            loadComposition(
+              record.composition,
+              `Открыта композиция «${record.composition.name}»`,
+              record.composition.id,
+            );
           }
         } finally {
           store.close();
@@ -234,6 +273,7 @@ export function GeometryWorkspace() {
         const store = await openCompositionStore();
         try {
           await store.remove(id);
+          if (loadedSavedIdRef.current === id) loadedSavedIdRef.current = null;
           setSavedItems(await store.list());
           showToast('Композиция удалена');
         } finally {
@@ -268,7 +308,7 @@ export function GeometryWorkspace() {
     async (file: File) => {
       try {
         const imported = importComposition(await file.text());
-        loadComposition(imported, `Импортирована композиция «${imported.name}»`);
+        loadComposition(imported, `Импортирована композиция «${imported.name}»`, null);
         setLibraryOpen(false);
       } catch (error) {
         showToast(error instanceof Error ? error.message : 'Неверный JSON композиции');
@@ -320,7 +360,7 @@ export function GeometryWorkspace() {
             id="lfg-preset-myline"
             type="button"
             className="lfg-btn lfg-btn--brass lfg-btn--sm"
-            onClick={() => loadComposition(createMylineComposition(), 'Загружена композиция MYLINE (4 дуги)')}
+            onClick={() => loadComposition(createMylineComposition(), 'Загружена композиция MYLINE (4 дуги)', null)}
           >
             MYLINE (4 дуги)
           </button>
@@ -328,7 +368,13 @@ export function GeometryWorkspace() {
             id="lfg-preset-example"
             type="button"
             className="lfg-btn lfg-btn--sm"
-            onClick={() => loadComposition(createGeometryExample(), 'Загружен инженерный пример (кольцо, дуга, линейный, трос, ремень)')}
+            onClick={() =>
+              loadComposition(
+                createGeometryExample(),
+                'Загружен инженерный пример (кольцо, дуга, линейный, трос, ремень)',
+                null,
+              )
+            }
           >
             Инженерный пример
           </button>
@@ -344,7 +390,7 @@ export function GeometryWorkspace() {
             id="lfg-save-btn"
             type="button"
             className="lfg-btn lfg-btn--primary lfg-btn--sm"
-            onClick={() => void handleSave()}
+            onClick={() => void handleSave(false)}
           >
             Сохранить
           </button>
@@ -367,73 +413,76 @@ export function GeometryWorkspace() {
         {/* Left: Interactive 3D Viewport */}
         <section className="lfg-viewport-pane" aria-label="Интерактивный 3D-просмотр">
           <div className="lfg-canvas-wrap">
-            {/* Top floating camera & overlay controls */}
-            <div className="lfg-hud-top">
-              <div className="lfg-hud-group" role="group" aria-label="Виды камеры">
-                {cameraButtons.map(btn => (
+            <div className="lfg-canvas-stage">
+              {/* Top floating camera & overlay controls */}
+              <div className="lfg-hud-top">
+                <div className="lfg-hud-group" role="group" aria-label="Виды камеры">
+                  {cameraButtons.map(btn => (
+                    <button
+                      key={btn.id}
+                      id={`lfg-cam-${btn.id}`}
+                      type="button"
+                      className={`lfg-btn lfg-btn--sm${cameraPreset === btn.id ? ' lfg-btn--active' : ''}`}
+                      onClick={() => {
+                        setCameraPreset(btn.id);
+                        setCameraTrigger(t => t + 1);
+                      }}
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="lfg-hud-group" role="group" aria-label="Слои визуализации">
                   <button
-                    key={btn.id}
-                    id={`lfg-cam-${btn.id}`}
+                    id="lfg-toggle-axes"
                     type="button"
-                    className={`lfg-btn lfg-btn--sm${cameraPreset === btn.id ? ' lfg-btn--active' : ''}`}
-                    onClick={() => {
-                      setCameraPreset(btn.id);
-                      setCameraTrigger(t => t + 1);
-                    }}
+                    className={`lfg-btn lfg-btn--sm${showAxes ? ' lfg-btn--active' : ''}`}
+                    aria-pressed={showAxes}
+                    onClick={() => setShowAxes(v => !v)}
                   >
-                    {btn.label}
+                    Оси XYZ
                   </button>
-                ))}
+                  <button
+                    id="lfg-toggle-dims"
+                    type="button"
+                    className={`lfg-btn lfg-btn--sm${showDimensions ? ' lfg-btn--active' : ''}`}
+                    aria-pressed={showDimensions}
+                    onClick={() => setShowDimensions(v => !v)}
+                  >
+                    Размеры
+                  </button>
+                  <button
+                    id="lfg-toggle-room"
+                    type="button"
+                    className={`lfg-btn lfg-btn--sm${showRoomPlanes ? ' lfg-btn--active' : ''}`}
+                    aria-pressed={showRoomPlanes}
+                    onClick={() => setShowRoomPlanes(v => !v)}
+                  >
+                    Потолок / Стол
+                  </button>
+                </div>
               </div>
 
-              <div className="lfg-hud-group" role="group" aria-label="Слои визуализации">
-                <button
-                  id="lfg-toggle-axes"
-                  type="button"
-                  className={`lfg-btn lfg-btn--sm${showAxes ? ' lfg-btn--active' : ''}`}
-                  aria-pressed={showAxes}
-                  onClick={() => setShowAxes(v => !v)}
-                >
-                  Оси XYZ
-                </button>
-                <button
-                  id="lfg-toggle-dims"
-                  type="button"
-                  className={`lfg-btn lfg-btn--sm${showDimensions ? ' lfg-btn--active' : ''}`}
-                  aria-pressed={showDimensions}
-                  onClick={() => setShowDimensions(v => !v)}
-                >
-                  Размеры
-                </button>
-                <button
-                  id="lfg-toggle-room"
-                  type="button"
-                  className={`lfg-btn lfg-btn--sm${showRoomPlanes ? ' lfg-btn--active' : ''}`}
-                  aria-pressed={showRoomPlanes}
-                  onClick={() => setShowRoomPlanes(v => !v)}
-                >
-                  Потолок / Стол
-                </button>
-              </div>
+              {activeResolved && (
+                <Scene3D
+                  resolved={activeResolved}
+                  selection={selection}
+                  onSelect={handleSelect3D}
+                  cameraPreset={cameraPreset}
+                  cameraTrigger={cameraTrigger}
+                  materialPreset={materialPreset}
+                  lightMode={lightMode}
+                  showAxes={showAxes}
+                  showDimensions={showDimensions}
+                  showRoomPlanes={showRoomPlanes}
+                  compactViewport={compactViewport}
+                  captureRef={captureRef}
+                />
+              )}
             </div>
 
-            {activeResolved && (
-              <Scene3D
-                resolved={activeResolved}
-                selection={selection}
-                onSelect={handleSelect3D}
-                cameraPreset={cameraPreset}
-                cameraTrigger={cameraTrigger}
-                materialPreset={materialPreset}
-                lightMode={lightMode}
-                showAxes={showAxes}
-                showDimensions={showDimensions}
-                showRoomPlanes={showRoomPlanes}
-                captureRef={captureRef}
-              />
-            )}
-
-            {/* Bottom floating engineering accuracy caveat */}
+            {/* Bottom engineering accuracy caveat (floats on desktop, docks cleanly below canvas on mobile) */}
             <div className="lfg-hud-bottom">
               <div className="lfg-cad-notice">
                 <strong>Предпросмотр геометрии (мм)</strong> · Не является производственным CAD-чертежом.
@@ -481,7 +530,7 @@ export function GeometryWorkspace() {
               <select
                 id="lfg-light-mode"
                 className="lfg-select"
-                style={{ width: 'auto', minHeight: 28, fontSize: 12, padding: '2px 8px' }}
+                style={{ width: 'auto', minHeight: 32, fontSize: 12, padding: '2px 8px' }}
                 value={lightMode}
                 onChange={e => setLightMode(e.target.value as LightVisualMode)}
               >
@@ -509,10 +558,12 @@ export function GeometryWorkspace() {
               <input
                 id="lfg-comp-name"
                 type="text"
-                className="lfg-input"
+                className={`lfg-input${compNameErr ? ' lfg-input--err' : ''}`}
                 value={composition.name}
+                aria-invalid={Boolean(compNameErr)}
                 onChange={e => setComposition(cur => ({ ...cur, name: e.target.value }))}
               />
+              {compNameErr && <span className="lfg-err-text">{compNameErr}</span>}
             </div>
 
             <div className="lfg-inspector-tabs" role="tablist" aria-label="Разделы конструктора">
@@ -524,7 +575,8 @@ export function GeometryWorkspace() {
                 aria-selected={activeTab === 'elements'}
                 onClick={() => setActiveTab('elements')}
               >
-                Формы ({composition.elements.length})
+                <span className="lfg-tab-label">Формы</span>
+                <span className="lfg-tab-count">{composition.elements.length}</span>
               </button>
               <button
                 id="lfg-tab-canopies"
@@ -534,7 +586,8 @@ export function GeometryWorkspace() {
                 aria-selected={activeTab === 'canopies'}
                 onClick={() => setActiveTab('canopies')}
               >
-                Основания ({composition.canopies.length})
+                <span className="lfg-tab-label">Основания</span>
+                <span className="lfg-tab-count">{composition.canopies.length}</span>
               </button>
               <button
                 id="lfg-tab-suspensions"
@@ -544,7 +597,8 @@ export function GeometryWorkspace() {
                 aria-selected={activeTab === 'suspensions'}
                 onClick={() => setActiveTab('suspensions')}
               >
-                Подвесы ({composition.suspensions.length})
+                <span className="lfg-tab-label">Подвесы</span>
+                <span className="lfg-tab-count">{composition.suspensions.length}</span>
               </button>
               <button
                 id="lfg-tab-levels"
@@ -554,7 +608,7 @@ export function GeometryWorkspace() {
                 aria-selected={activeTab === 'levels'}
                 onClick={() => setActiveTab('levels')}
               >
-                Уровни
+                <span className="lfg-tab-label">Уровни</span>
               </button>
             </div>
           </div>
@@ -581,6 +635,18 @@ export function GeometryWorkspace() {
                   const first = next.elements[0]?.id ?? '';
                   setSelectedElementId(first);
                   setSelection(first ? { kind: 'element', id: first } : null);
+                }}
+                onRemoveAttachment={(elementId, attachmentId) => {
+                  const { composition: next, removedSuspensions } = removeElementAttachmentFromComposition(
+                    composition,
+                    elementId,
+                    attachmentId,
+                  );
+                  setComposition(next);
+                  if (removedSuspensions > 0) {
+                    setSelectedSuspensionId(next.suspensions[0]?.id ?? null);
+                    showToast(`Точка крепления удалена вместе со связанными подвесами (${removedSuspensions})`);
+                  }
                 }}
                 onUpdateElement={(id, updater) =>
                   setComposition(cur => ({
@@ -611,6 +677,18 @@ export function GeometryWorkspace() {
                   const next = removeCanopyFromComposition(composition, id);
                   setComposition(next);
                   setSelectedCanopyId(next.canopies[0]?.id ?? null);
+                }}
+                onRemoveExit={(canopyId, exitId) => {
+                  const { composition: next, removedSuspensions } = removeCanopyExitFromComposition(
+                    composition,
+                    canopyId,
+                    exitId,
+                  );
+                  setComposition(next);
+                  if (removedSuspensions > 0) {
+                    setSelectedSuspensionId(next.suspensions[0]?.id ?? null);
+                    showToast(`Точка выхода удалена вместе со связанными подвесами (${removedSuspensions})`);
+                  }
                 }}
                 onUpdateCanopy={(id, updater) =>
                   setComposition(cur => ({
@@ -677,6 +755,7 @@ export function GeometryWorkspace() {
         loading={libraryLoading}
         onOpen={id => void handleOpenSaved(id)}
         onDelete={id => void handleDeleteSaved(id)}
+        onSaveAsCopy={() => void handleSave(true)}
         onExportJson={handleExportJson}
         onImportJson={file => void handleImportJson(file)}
       />

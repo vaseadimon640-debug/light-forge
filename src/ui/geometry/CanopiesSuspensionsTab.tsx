@@ -7,7 +7,9 @@ import {
   formatMm,
   formatSuspensionFormula,
   qualityLabels,
+  removeSuspensionGuidePoint,
   suspensionTypeLabels,
+  switchCanopyFootprint,
   translateMissingKey,
   type GeometryFieldIssue,
 } from './helpers';
@@ -19,6 +21,7 @@ type CanopiesTabProps = {
   onSelectCanopy: (id: string) => void;
   onAddCanopy: (type: Canopy['footprint']['type']) => void;
   onRemoveCanopy: (id: string) => void;
+  onRemoveExit: (canopyId: string, exitId: string) => void;
   onUpdateCanopy: (id: string, updater: (canopy: Canopy) => Canopy) => void;
   issues: GeometryFieldIssue[];
 };
@@ -30,6 +33,7 @@ export function CanopiesTab({
   onSelectCanopy,
   onAddCanopy,
   onRemoveCanopy,
+  onRemoveExit,
   onUpdateCanopy,
   issues,
 }: CanopiesTabProps) {
@@ -45,6 +49,8 @@ export function CanopiesTab({
         issue.path[1] === activeIdx &&
         sub.every((seg, i) => issue.path[2 + i] === seg),
     )?.message;
+
+  const canopyNameErr = issueFor('name');
 
   return (
     <>
@@ -75,7 +81,7 @@ export function CanopiesTab({
                 className={`lfg-chip${canopy && c.id === canopy.id ? ' lfg-chip--active' : ''}`}
                 onClick={() => onSelectCanopy(c.id)}
               >
-                {c.name}
+                {c.name || '(без названия)'}
               </button>
             ))}
           </div>
@@ -98,12 +104,32 @@ export function CanopiesTab({
                 <input
                   id={`canopy-name-${canopy.id}`}
                   type="text"
-                  className="lfg-input"
+                  className={`lfg-input${canopyNameErr ? ' lfg-input--err' : ''}`}
                   value={canopy.name}
                   onChange={e => onUpdateCanopy(canopy.id, cur => ({ ...cur, name: e.target.value }))}
                 />
+                {canopyNameErr && <span className="lfg-err-text">{canopyNameErr}</span>}
               </div>
 
+              <div className="lfg-field">
+                <label className="lfg-label" htmlFor={`canopy-footprint-${canopy.id}`}>Форма основания</label>
+                <select
+                  id={`canopy-footprint-${canopy.id}`}
+                  className="lfg-select"
+                  value={canopy.footprint.type}
+                  onChange={e =>
+                    onUpdateCanopy(canopy.id, cur =>
+                      switchCanopyFootprint(cur, e.target.value as Canopy['footprint']['type']),
+                    )
+                  }
+                >
+                  <option value="round">Круглое (round)</option>
+                  <option value="rectangular">Прямоугольное / линейное (rectangular)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="lfg-grid-2">
               <AxisInput
                 id={`canopy-drop-${canopy.id}`}
                 label="Высота основания (drop)"
@@ -123,25 +149,23 @@ export function CanopiesTab({
                   }))
                 }
               />
-            </div>
 
-            {canopy.footprint.type === 'round' ? (
-              <AxisInput
-                id={`canopy-diam-${canopy.id}`}
-                label="Диаметр круглого основания"
-                min={0.001}
-                value={canopy.footprint.diameterMm}
-                onChange={next =>
-                  next &&
-                  onUpdateCanopy(canopy.id, cur =>
-                    cur.footprint.type === 'round'
-                      ? { ...cur, footprint: { ...cur.footprint, diameterMm: next } }
-                      : cur,
-                  )
-                }
-              />
-            ) : (
-              <div className="lfg-grid-2">
+              {canopy.footprint.type === 'round' ? (
+                <AxisInput
+                  id={`canopy-diam-${canopy.id}`}
+                  label="Диаметр основания"
+                  min={0.001}
+                  value={canopy.footprint.diameterMm}
+                  onChange={next =>
+                    next &&
+                    onUpdateCanopy(canopy.id, cur =>
+                      cur.footprint.type === 'round'
+                        ? { ...cur, footprint: { ...cur.footprint, diameterMm: next } }
+                        : cur,
+                    )
+                  }
+                />
+              ) : (
                 <AxisInput
                   id={`canopy-w-${canopy.id}`}
                   label="Ширина основания (X)"
@@ -156,27 +180,30 @@ export function CanopiesTab({
                     )
                   }
                 />
-                <AxisInput
-                  id={`canopy-d-${canopy.id}`}
-                  label="Глубина основания (Y)"
-                  min={0.001}
-                  value={canopy.footprint.depthMm}
-                  onChange={next =>
-                    next &&
-                    onUpdateCanopy(canopy.id, cur =>
-                      cur.footprint.type === 'rectangular'
-                        ? { ...cur, footprint: { ...cur.footprint, depthMm: next } }
-                        : cur,
-                    )
-                  }
-                />
-              </div>
+              )}
+            </div>
+
+            {canopy.footprint.type === 'rectangular' && (
+              <AxisInput
+                id={`canopy-d-${canopy.id}`}
+                label="Глубина основания (Y)"
+                min={0.001}
+                value={canopy.footprint.depthMm}
+                onChange={next =>
+                  next &&
+                  onUpdateCanopy(canopy.id, cur =>
+                    cur.footprint.type === 'rectangular'
+                      ? { ...cur, footprint: { ...cur.footprint, depthMm: next } }
+                      : cur,
+                  )
+                }
+              />
             )}
 
-            <div className="lfg-grid-3">
+            <div className="lfg-grid-2">
               <AxisInput
                 id={`canopy-x-${canopy.id}`}
-                label="X"
+                label="X (ширина)"
                 optional
                 value={canopy.position.x}
                 onChange={next =>
@@ -190,7 +217,7 @@ export function CanopiesTab({
               />
               <AxisInput
                 id={`canopy-y-${canopy.id}`}
-                label="Y"
+                label="Y (глубина)"
                 optional
                 value={canopy.position.y}
                 onChange={next =>
@@ -204,7 +231,7 @@ export function CanopiesTab({
               />
               <AxisInput
                 id={`canopy-yaw-${canopy.id}`}
-                label="Yaw"
+                label="Поворот yaw"
                 unit="°"
                 optional
                 min={-360}
@@ -233,6 +260,7 @@ export function CanopiesTab({
             <div className="lfg-section-head">
               <h3 className="lfg-section-title">Точки выхода подвесов ({canopy.exits.length})</h3>
               <button
+                id={`lfg-add-exit-${canopy.id}`}
                 type="button"
                 className="lfg-btn lfg-btn--sm"
                 onClick={() =>
@@ -259,6 +287,9 @@ export function CanopiesTab({
 
             {canopy.exits.map((exit, exitIdx) => {
               const err = issueFor('exits', exitIdx, 'point');
+              const linkedCount = composition.suspensions.filter(
+                s => s.from.canopyId === canopy.id && s.from.exitId === exit.id,
+              ).length;
               return (
                 <div
                   key={exit.id}
@@ -273,27 +304,30 @@ export function CanopiesTab({
                   }}
                 >
                   <div className="lfg-section-head">
-                    <input
-                      type="text"
-                      className="lfg-input"
-                      style={{ maxWidth: 200, minHeight: 28, fontSize: 12 }}
-                      value={exit.label}
-                      onChange={e =>
-                        onUpdateCanopy(canopy.id, cur => ({
-                          ...cur,
-                          exits: cur.exits.map(ex => (ex.id === exit.id ? { ...ex, label: e.target.value } : ex)),
-                        }))
-                      }
-                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                      <input
+                        type="text"
+                        className="lfg-input"
+                        style={{ maxWidth: 180, minHeight: 28, fontSize: 12 }}
+                        value={exit.label}
+                        onChange={e =>
+                          onUpdateCanopy(canopy.id, cur => ({
+                            ...cur,
+                            exits: cur.exits.map(ex => (ex.id === exit.id ? { ...ex, label: e.target.value } : ex)),
+                          }))
+                        }
+                      />
+                      {linkedCount > 0 && (
+                        <span className="lfg-badge lfg-badge--accent" title="При удалении выхода связанные подвесы также будут удалены">
+                          Подвесов: {linkedCount}
+                        </span>
+                      )}
+                    </div>
                     <button
+                      id={`remove-exit-${canopy.id}-${exit.id}`}
                       type="button"
                       className="lfg-btn lfg-btn--danger lfg-btn--sm"
-                      onClick={() =>
-                        onUpdateCanopy(canopy.id, cur => ({
-                          ...cur,
-                          exits: cur.exits.filter(ex => ex.id !== exit.id),
-                        }))
-                      }
+                      onClick={() => onRemoveExit(canopy.id, exit.id)}
                     >
                       Удалить
                     </button>
@@ -321,6 +355,132 @@ export function CanopiesTab({
                 </div>
               );
             })}
+          </div>
+
+          {/* Ceiling Fixings (upper canopy face, z === dropMm) */}
+          <div className="lfg-section">
+            <div className="lfg-section-head">
+              <h3 className="lfg-section-title">Крепления к потолку ({canopy.ceilingFixings.length})</h3>
+              <button
+                id={`lfg-add-fixing-${canopy.id}`}
+                type="button"
+                className="lfg-btn lfg-btn--sm"
+                onClick={() =>
+                  onUpdateCanopy(canopy.id, cur => ({
+                    ...cur,
+                    ceilingFixings: [
+                      ...cur.ceilingFixings,
+                      {
+                        id: `fix-${crypto.randomUUID().slice(0, 5)}`,
+                        label: `Крепление ${cur.ceilingFixings.length + 1}`,
+                        point: {
+                          x: { value: 0, source: 'user' },
+                          y: { value: 0, source: 'user' },
+                          z: { value: cur.dropMm.value, source: cur.dropMm.source },
+                        },
+                      },
+                    ],
+                  }))
+                }
+              >
+                + Крепление
+              </button>
+            </div>
+
+            {canopy.ceilingFixings.length === 0 ? (
+              <div className="lfg-hint">
+                Точки крепления основания к потолку не заданы. По умолчанию лежат на верхней грани (Z = {canopy.dropMm.value} мм).
+              </div>
+            ) : (
+              canopy.ceilingFixings.map((fix, fixIdx) => {
+                const err = issueFor('ceilingFixings', fixIdx, 'point');
+                const resolvedFix = resolvedCanopy?.ceilingFixings.find(item => item.id === fix.id);
+                const worldKnown =
+                  resolvedFix &&
+                  resolvedFix.world.x.valueMm !== null &&
+                  resolvedFix.world.y.valueMm !== null &&
+                  resolvedFix.world.z.valueMm !== null;
+                return (
+                  <div
+                    key={fix.id}
+                    style={{
+                      padding: 9,
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-surface)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 7,
+                    }}
+                  >
+                    <div className="lfg-section-head">
+                      <input
+                        type="text"
+                        className="lfg-input"
+                        style={{ maxWidth: 195, minHeight: 28, fontSize: 12 }}
+                        value={fix.label}
+                        onChange={e =>
+                          onUpdateCanopy(canopy.id, cur => ({
+                            ...cur,
+                            ceilingFixings: cur.ceilingFixings.map(item =>
+                              item.id === fix.id ? { ...item, label: e.target.value } : item,
+                            ),
+                          }))
+                        }
+                      />
+                      <button
+                        id={`remove-fixing-${canopy.id}-${fix.id}`}
+                        type="button"
+                        className="lfg-btn lfg-btn--danger lfg-btn--sm"
+                        onClick={() =>
+                          onUpdateCanopy(canopy.id, cur => ({
+                            ...cur,
+                            ceilingFixings: cur.ceilingFixings.filter(item => item.id !== fix.id),
+                          }))
+                        }
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                    <div className="lfg-grid-2">
+                      {(['x', 'y'] as const).map(coord => (
+                        <AxisInput
+                          key={coord}
+                          id={`fix-${fix.id}-${coord}`}
+                          label={`Лок. ${coord.toUpperCase()}`}
+                          value={fix.point[coord]}
+                          onChange={next =>
+                            next &&
+                            onUpdateCanopy(canopy.id, cur => ({
+                              ...cur,
+                              ceilingFixings: cur.ceilingFixings.map((item, i) =>
+                                i === fixIdx
+                                  ? {
+                                      ...item,
+                                      point: {
+                                        ...item.point,
+                                        [coord]: next,
+                                        z: { ...item.point.z, value: cur.dropMm.value },
+                                      },
+                                    }
+                                  : item,
+                              ),
+                            }))
+                          }
+                        />
+                      ))}
+                    </div>
+                    <div className="lfg-hint lfg-mono">
+                      Верхняя грань Z = {canopy.dropMm.value} мм
+                      {worldKnown
+                        ? ` · Мир: (${Math.round(resolvedFix.world.x.valueMm!)}, ${Math.round(resolvedFix.world.y.valueMm!)}, ${Math.round(resolvedFix.world.z.valueMm!)}) мм`
+                        : ''}
+                    </div>
+                    {err && <span className="lfg-err-text">{err}</span>}
+                  </div>
+                );
+              })
+            )}
           </div>
         </>
       )}
@@ -356,6 +516,23 @@ export function SuspensionsTab({
   const selected =
     composition.suspensions.find(s => s.id === selectedSuspensionId) ?? composition.suspensions[0];
   const resolvedSusp = selected ? resolved?.suspensions.find(s => s.id === selected.id) : undefined;
+
+  const fromOptions = composition.canopies.flatMap(canopy =>
+    canopy.exits.map(exit => ({
+      value: `${canopy.id}::${exit.id}`,
+      label: `${canopy.name} → ${exit.label}`,
+    })),
+  );
+  const toOptions = composition.elements.flatMap(el =>
+    el.attachments.map(att => ({
+      value: `${el.id}::${att.id}`,
+      label: `${el.name} → ${att.label}`,
+    })),
+  );
+  const selectedFromVal = selected ? `${selected.from.canopyId}::${selected.from.exitId}` : '';
+  const selectedToVal = selected ? `${selected.to.elementId}::${selected.to.attachmentId}` : '';
+  const fromMissing = Boolean(selected && !fromOptions.some(o => o.value === selectedFromVal));
+  const toMissing = Boolean(selected && !toOptions.some(o => o.value === selectedToVal));
 
   return (
     <>
@@ -470,20 +647,21 @@ export function SuspensionsTab({
               <label className="lfg-label" htmlFor={`susp-from-${selected.id}`}>Выход основания</label>
               <select
                 id={`susp-from-${selected.id}`}
-                className="lfg-select"
-                value={`${selected.from.canopyId}::${selected.from.exitId}`}
+                className={`lfg-select${fromMissing ? ' lfg-input--err' : ''}`}
+                value={selectedFromVal}
                 onChange={e => {
                   const [canopyId, exitId] = e.target.value.split('::');
                   onUpdateSuspension(selected.id, cur => ({ ...cur, from: { canopyId, exitId } }));
                 }}
               >
-                {composition.canopies.flatMap(canopy =>
-                  canopy.exits.map(exit => (
-                    <option key={`${canopy.id}::${exit.id}`} value={`${canopy.id}::${exit.id}`}>
-                      {canopy.name} → {exit.label}
-                    </option>
-                  )),
+                {fromMissing && (
+                  <option value={selectedFromVal}>[Отсутствующий выход: {selected.from.exitId}]</option>
                 )}
+                {fromOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -491,20 +669,21 @@ export function SuspensionsTab({
               <label className="lfg-label" htmlFor={`susp-to-${selected.id}`}>Крепление элемента</label>
               <select
                 id={`susp-to-${selected.id}`}
-                className="lfg-select"
-                value={`${selected.to.elementId}::${selected.to.attachmentId}`}
+                className={`lfg-select${toMissing ? ' lfg-input--err' : ''}`}
+                value={selectedToVal}
                 onChange={e => {
                   const [elementId, attachmentId] = e.target.value.split('::');
                   onUpdateSuspension(selected.id, cur => ({ ...cur, to: { elementId, attachmentId } }));
                 }}
               >
-                {composition.elements.flatMap(el =>
-                  el.attachments.map(att => (
-                    <option key={`${el.id}::${att.id}`} value={`${el.id}::${att.id}`}>
-                      {el.name} → {att.label}
-                    </option>
-                  )),
+                {toMissing && (
+                  <option value={selectedToVal}>[Отсутствующее крепление: {selected.to.attachmentId}]</option>
                 )}
+                {toOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -544,10 +723,12 @@ export function SuspensionsTab({
           {selected.routing.type === 'guided' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div className="lfg-section-head">
-                <span className="lfg-label">Точки направляющих (мировые мм)</span>
+                <span className="lfg-label">Точки направляющих ({selected.routing.guides.length})</span>
                 <button
+                  id={`add-guide-${selected.id}`}
                   type="button"
                   className="lfg-btn lfg-btn--sm"
+                  disabled={selected.routing.guides.length >= 16}
                   onClick={() =>
                     onUpdateSuspension(selected.id, cur =>
                       cur.routing.type === 'guided'
@@ -573,31 +754,59 @@ export function SuspensionsTab({
                 </button>
               </div>
               {selected.routing.guides.map((guide, gIdx) => (
-                <div key={gIdx} className="lfg-grid-3">
-                  {(['x', 'y', 'z'] as const).map(coord => (
-                    <AxisInput
-                      key={coord}
-                      id={`guide-${selected.id}-${gIdx}-${coord}`}
-                      label={`Напр.${gIdx + 1} ${coord.toUpperCase()}`}
-                      value={guide[coord]}
-                      onChange={next =>
-                        next &&
-                        onUpdateSuspension(selected.id, cur =>
-                          cur.routing.type === 'guided'
-                            ? {
-                                ...cur,
-                                routing: {
-                                  type: 'guided',
-                                  guides: cur.routing.guides.map((pt, i) =>
-                                    i === gIdx ? { ...pt, [coord]: next } : pt,
-                                  ),
-                                },
-                              }
-                            : cur,
-                        )
+                <div
+                  key={gIdx}
+                  style={{
+                    padding: 9,
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-surface)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 7,
+                  }}
+                >
+                  <div className="lfg-section-head">
+                    <span className="lfg-hint" style={{ fontWeight: 600 }}>
+                      Направляющая #{gIdx + 1} (мировые мм)
+                    </span>
+                    <button
+                      id={`remove-guide-${selected.id}-${gIdx}`}
+                      type="button"
+                      className="lfg-btn lfg-btn--danger lfg-btn--sm"
+                      onClick={() =>
+                        onUpdateSuspension(selected.id, cur => removeSuspensionGuidePoint(cur, gIdx))
                       }
-                    />
-                  ))}
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                  <div className="lfg-grid-3">
+                    {(['x', 'y', 'z'] as const).map(coord => (
+                      <AxisInput
+                        key={coord}
+                        id={`guide-${selected.id}-${gIdx}-${coord}`}
+                        label={coord.toUpperCase()}
+                        value={guide[coord]}
+                        onChange={next =>
+                          next &&
+                          onUpdateSuspension(selected.id, cur =>
+                            cur.routing.type === 'guided'
+                              ? {
+                                  ...cur,
+                                  routing: {
+                                    type: 'guided',
+                                    guides: cur.routing.guides.map((pt, i) =>
+                                      i === gIdx ? { ...pt, [coord]: next } : pt,
+                                    ),
+                                  },
+                                }
+                              : cur,
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>

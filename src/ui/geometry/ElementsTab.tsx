@@ -20,6 +20,7 @@ type ElementsTabProps = {
   onSelectElement: (id: string) => void;
   onAddElement: (shapeType: Shape['type']) => void;
   onRemoveElement: (id: string) => void;
+  onRemoveAttachment: (elementId: string, attachmentId: string) => void;
   onUpdateElement: (id: string, updater: (el: Element) => Element) => void;
   issues: GeometryFieldIssue[];
 };
@@ -35,6 +36,7 @@ export function ElementsTab({
   onSelectElement,
   onAddElement,
   onRemoveElement,
+  onRemoveAttachment,
   onUpdateElement,
   issues,
 }: ElementsTabProps) {
@@ -54,6 +56,7 @@ export function ElementsTab({
     )?.message;
 
   const update = (fn: (el: Element) => Element) => onUpdateElement(element.id, fn);
+  const nameErr = issueFor('name');
 
   return (
     <>
@@ -80,7 +83,7 @@ export function ElementsTab({
               className={`lfg-chip${item.id === element.id ? ' lfg-chip--active' : ''}`}
               onClick={() => onSelectElement(item.id)}
             >
-              <span>{item.name}</span>
+              <span>{item.name || '(без названия)'}</span>
               <span className="lfg-mono" style={{ opacity: 0.72, fontSize: 10.5 }}>
                 {item.shape.type}
               </span>
@@ -121,10 +124,11 @@ export function ElementsTab({
             <input
               id={`el-name-${element.id}`}
               type="text"
-              className="lfg-input"
+              className={`lfg-input${nameErr ? ' lfg-input--err' : ''}`}
               value={element.name}
               onChange={e => update(cur => ({ ...cur, name: e.target.value }))}
             />
+            {nameErr && <span className="lfg-err-text">{nameErr}</span>}
           </div>
 
           <div className="lfg-field">
@@ -490,6 +494,9 @@ export function ElementsTab({
         ) : (
           element.attachments.map((att, attIdx) => {
             const resolvedAtt = resolvedEl?.attachments.find(a => a.id === att.id);
+            const linkedCount = composition.suspensions.filter(
+              s => s.to.elementId === element.id && s.to.attachmentId === att.id,
+            ).length;
             const worldKnown =
               resolvedAtt &&
               resolvedAtt.world.x.valueMm !== null &&
@@ -509,27 +516,30 @@ export function ElementsTab({
                 }}
               >
                 <div className="lfg-section-head">
-                  <input
-                    type="text"
-                    className="lfg-input"
-                    style={{ maxWidth: 210, minHeight: 28, fontSize: 12 }}
-                    value={att.label}
-                    onChange={e =>
-                      update(cur => ({
-                        ...cur,
-                        attachments: cur.attachments.map(a => (a.id === att.id ? { ...a, label: e.target.value } : a)),
-                      }))
-                    }
-                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                    <input
+                      type="text"
+                      className="lfg-input"
+                      style={{ maxWidth: 190, minHeight: 28, fontSize: 12 }}
+                      value={att.label}
+                      onChange={e =>
+                        update(cur => ({
+                          ...cur,
+                          attachments: cur.attachments.map(a => (a.id === att.id ? { ...a, label: e.target.value } : a)),
+                        }))
+                      }
+                    />
+                    {linkedCount > 0 && (
+                      <span className="lfg-badge lfg-badge--accent" title="При удалении точки связанные подвесы также будут удалены">
+                        Подвесов: {linkedCount}
+                      </span>
+                    )}
+                  </div>
                   <button
+                    id={`remove-att-${element.id}-${att.id}`}
                     type="button"
                     className="lfg-btn lfg-btn--danger lfg-btn--sm"
-                    onClick={() =>
-                      update(cur => ({
-                        ...cur,
-                        attachments: cur.attachments.filter(a => a.id !== att.id),
-                      }))
-                    }
+                    onClick={() => onRemoveAttachment(element.id, att.id)}
                   >
                     Удалить
                   </button>
