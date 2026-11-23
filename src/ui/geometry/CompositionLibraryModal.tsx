@@ -11,6 +11,7 @@ type CompositionLibraryModalProps = {
   loading: boolean;
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
+  onSaveAsCopy: () => void;
   onExportJson: () => void;
   onImportJson: (file: File) => void;
 };
@@ -37,6 +38,7 @@ export function CompositionLibraryModal({
   loading,
   onOpen,
   onDelete,
+  onSaveAsCopy,
   onExportJson,
   onImportJson,
 }: CompositionLibraryModalProps) {
@@ -72,12 +74,20 @@ export function CompositionLibraryModal({
         <div className="lfg-modal-body">
           <div className="lfg-saved-row">
             <div>
-              <strong style={{ fontSize: 13 }}>Перенос JSON-файлом</strong>
+              <strong style={{ fontSize: 13 }}>Варианты и перенос JSON</strong>
               <div className="lfg-hint">
-                Хранение в браузере привязано к origin. Выгрузите JSON для переноса на другой домен.
+                Хранение в браузере привязано к origin. Сохраняйте копии с новым ID или переносите JSON-файлом.
               </div>
             </div>
-            <div style={{ display: 'inline-flex', gap: 6 }}>
+            <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                id="lfg-save-copy-btn"
+                type="button"
+                className="lfg-btn lfg-btn--primary lfg-btn--sm"
+                onClick={onSaveAsCopy}
+              >
+                Сохранить как копию
+              </button>
               <button id="lfg-export-json-btn" type="button" className="lfg-btn lfg-btn--sm" onClick={onExportJson}>
                 Экспорт JSON
               </button>

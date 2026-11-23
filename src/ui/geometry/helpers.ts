@@ -492,6 +492,124 @@ export function removeCanopyFromComposition(composition: Composition, canopyId: 
   };
 }
 
+export function removeElementAttachmentFromComposition(
+  composition: Composition,
+  elementId: string,
+  attachmentId: string,
+): { composition: Composition; removedSuspensions: number } {
+  const remainingSuspensions = composition.suspensions.filter(
+    s => !(s.to.elementId === elementId && s.to.attachmentId === attachmentId),
+  );
+  const removedSuspensions = composition.suspensions.length - remainingSuspensions.length;
+  return {
+    composition: {
+      ...composition,
+      elements: composition.elements.map(el =>
+        el.id === elementId
+          ? { ...el, attachments: el.attachments.filter(att => att.id !== attachmentId) }
+          : el,
+      ),
+      suspensions: remainingSuspensions,
+    },
+    removedSuspensions,
+  };
+}
+
+export function removeCanopyExitFromComposition(
+  composition: Composition,
+  canopyId: string,
+  exitId: string,
+): { composition: Composition; removedSuspensions: number } {
+  const remainingSuspensions = composition.suspensions.filter(
+    s => !(s.from.canopyId === canopyId && s.from.exitId === exitId),
+  );
+  const removedSuspensions = composition.suspensions.length - remainingSuspensions.length;
+  return {
+    composition: {
+      ...composition,
+      canopies: composition.canopies.map(c =>
+        c.id === canopyId
+          ? { ...c, exits: c.exits.filter(ex => ex.id !== exitId) }
+          : c,
+      ),
+      suspensions: remainingSuspensions,
+    },
+    removedSuspensions,
+  };
+}
+
+export function switchCanopyFootprint(
+  canopy: Canopy,
+  nextType: Canopy['footprint']['type'],
+): Canopy {
+  if (canopy.footprint.type === nextType) return canopy;
+  if (nextType === 'rectangular' && canopy.footprint.type === 'round') {
+    const d = canopy.footprint.diameterMm;
+    return {
+      ...canopy,
+      footprint: {
+        type: 'rectangular',
+        widthMm: { ...d },
+        depthMm: { ...d },
+      },
+    };
+  }
+  if (nextType === 'round' && canopy.footprint.type === 'rectangular') {
+    const candidates: Array<{ value: number; sources: Axis['source'][] }> = [
+      { value: canopy.footprint.widthMm.value, sources: [canopy.footprint.widthMm.source] },
+      { value: canopy.footprint.depthMm.value, sources: [canopy.footprint.depthMm.source] },
+    ];
+    for (const anchor of [...canopy.exits, ...canopy.ceilingFixings]) {
+      const radius = Math.hypot(anchor.point.x.value, anchor.point.y.value);
+      if (radius > 0) {
+        candidates.push({
+          value: Math.ceil(radius * 2),
+          sources: [anchor.point.x.source, anchor.point.y.source],
+        });
+      }
+    }
+    const base = candidates.reduce((max, item) => Math.max(max, item.value), 0);
+    const determiningSources = candidates
+      .filter(item => item.value === base)
+      .flatMap(item => item.sources);
+    const source: Axis['source'] = determiningSources.includes('estimated')
+      ? 'estimated'
+      : determiningSources.includes('user')
+        ? 'user'
+        : 'documentation';
+    return {
+      ...canopy,
+      footprint: {
+        type: 'round',
+        diameterMm: { value: base, source },
+      },
+    };
+  }
+  return canopy;
+}
+
+export function removeSuspensionGuidePoint(
+  suspension: Composition['suspensions'][number],
+  guideIndex: number,
+): Composition['suspensions'][number] {
+  if (suspension.routing.type !== 'guided') return suspension;
+  const remaining = suspension.routing.guides.filter((_, idx) => idx !== guideIndex);
+  return {
+    ...suspension,
+    routing: remaining.length > 0 ? { type: 'guided', guides: remaining } : { type: 'straight' },
+  };
+}
+
+export function cloneCompositionWithNewId(composition: Composition, nextName?: string): Composition {
+  const base = composition.id.replace(/-[a-f0-9]{6}$/, '').slice(0, 56) || 'composition';
+  const id = `${base}-${crypto.randomUUID().slice(0, 6)}`;
+  return {
+    ...composition,
+    id,
+    name: nextName ?? composition.name,
+  };
+}
+
 export function addSuspensionToComposition(
   composition: Composition,
   type: Composition['suspensions'][number]['type'],
@@ -545,15 +663,36 @@ export function translateGeometryIssue(message: string): string {
     'Unknown canopy exit': 'Указан несуществующий выход потолочного основания.',
     'Unknown element attachment': 'Указана несуществующая точка крепления элемента.',
   };
-  return map[message] ?? message;
+  if (map[message]) return map[message];
+  if (/Too small: expected string to have >=1|String must contain at least 1/.test(message)) {
+    return 'Поле не может быть пустым.';
+  }
+  if (/Too big: expected string/.test(message)) {
+    return 'Превышена максимальная длина текста.';
+  }
+  if (/Too small: expected number/.test(message)) {
+    return 'Значение меньше допустимого минимума.';
+  }
+  if (/Too big: expected number/.test(message)) {
+    return 'Значение превышает допустимый максимум.';
+  }
+  return message;
 }
 
 export function formatGeometryIssuePath(path: (string | number)[]): string {
   if (!path.length) return 'Композиция';
   const [root, idx, field, sub] = path;
+  if (root === 'name') return 'Название композиции';
+  if (root === 'id') return 'Идентификатор композиции';
   if (root === 'site') return idx === 'tabletopFromFloorMm' ? 'Уровни → Столешница' : 'Уровни → Потолок';
-  if (root === 'elements') return `Элемент #${Number(idx) + 1}${field ? ` → ${String(field)}` : ''}${sub ? `.${String(sub)}` : ''}`;
-  if (root === 'canopies') return `Основание #${Number(idx) + 1}${field ? ` → ${String(field)}` : ''}`;
+  if (root === 'elements') {
+    if (field === 'name') return `Элемент #${Number(idx) + 1} → Название`;
+    return `Элемент #${Number(idx) + 1}${field ? ` → ${String(field)}` : ''}${sub ? `.${String(sub)}` : ''}`;
+  }
+  if (root === 'canopies') {
+    if (field === 'name') return `Основание #${Number(idx) + 1} → Название`;
+    return `Основание #${Number(idx) + 1}${field ? ` → ${String(field)}` : ''}`;
+  }
   if (root === 'suspensions') return `Подвес #${Number(idx) + 1}${field ? ` → ${String(field)}` : ''}`;
   return path.join(' → ');
 }

@@ -33,26 +33,37 @@ type Scene3DProps = {
   showAxes: boolean;
   showDimensions: boolean;
   showRoomPlanes: boolean;
+  compactViewport?: boolean;
   captureRef: MutableRefObject<(() => string | null) | null>;
 };
 
 const DEG2RAD = Math.PI / 180;
+const ORBIT_TOUCHES = {
+  ONE: THREE.TOUCH.ROTATE,
+  TWO: THREE.TOUCH.DOLLY_PAN,
+};
 
 function CameraController({
   preset,
   trigger,
   center,
   radius,
+  compactViewport,
   captureRef,
 }: {
   preset: CameraPreset;
   trigger: number;
   center: [number, number, number];
   radius: number;
+  compactViewport: boolean;
   captureRef: MutableRefObject<(() => string | null) | null>;
 }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
-  const { camera, gl, scene } = useThree();
+  const boundsRef = useRef({ center, radius });
+  boundsRef.current = { center, radius };
+  const { camera, gl, scene, size } = useThree();
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
 
   useEffect(() => {
     captureRef.current = () => {
@@ -64,9 +75,23 @@ function CameraController({
     };
   }, [camera, captureRef, gl, scene]);
 
+  // Reposition camera ONLY on explicit preset/trigger or viewport-mode transitions — never on field edits
   useEffect(() => {
-    const dist = Math.max(3.2, radius * 2.15);
-    const [cx, cy, cz] = center;
+    const { center: activeCenter, radius: activeRadius } = boundsRef.current;
+    const { width, height } = sizeRef.current;
+    const aspect = width / Math.max(1, height);
+    const narrowBoost = compactViewport || aspect < 0.95 ? Math.min(1.9, 1.15 / Math.max(0.55, aspect)) : 1;
+    const dist = Math.max(3.2, activeRadius * 2.15) * narrowBoost;
+    const [cx, cy, cz] = activeCenter;
+
+    const ctrl = controlsRef.current;
+    const prevDamping = ctrl?.enableDamping ?? true;
+    if (ctrl) {
+      // Flush any residual damping velocity/pan before snapping to the requested camera preset
+      ctrl.enableDamping = false;
+      ctrl.update();
+    }
+
     if (preset === 'iso') {
       camera.position.set(cx + dist * 0.72, cy + dist * 0.44, cz + dist * 0.85);
     } else if (preset === 'top') {
@@ -77,21 +102,27 @@ function CameraController({
       camera.position.set(cx + dist * 1.25, cy, cz);
     }
     camera.lookAt(cx, cy, cz);
-    if (controlsRef.current) {
-      controlsRef.current.target.set(cx, cy, cz);
-      controlsRef.current.update();
+    if (ctrl) {
+      ctrl.target.set(cx, cy, cz);
+      ctrl.update();
+      ctrl.enableDamping = prevDamping;
     }
-  }, [camera, center, preset, radius, trigger]);
+  }, [camera, compactViewport, preset, trigger]);
 
   return (
     <OrbitControls
       ref={controlsRef}
       makeDefault
+      enableRotate
+      enableZoom
+      enablePan
       enableDamping
-      dampingFactor={0.08}
+      dampingFactor={0.14}
       minDistance={0.4}
       maxDistance={28}
-      maxPolarAngle={Math.PI * 0.495}
+      minPolarAngle={0.05}
+      maxPolarAngle={Math.PI * 0.88}
+      touches={ORBIT_TOUCHES}
     />
   );
 }
@@ -386,24 +417,24 @@ function SuspensionSegmentMesh({
   );
 }
 
-function EngineeringAxes() {
+function EngineeringAxes({ compact }: { compact: boolean }) {
   const axisLen = 0.75;
   return (
     <group position={[0, 0.004, 0]}>
       {/* +X engineering -> +X Three.js */}
       <Line points={[[0, 0, 0], [axisLen, 0, 0]]} color="#c74338" lineWidth={2} />
       <Html zIndexRange={[1, 8]} position={[axisLen + 0.08, 0.03, 0]} center>
-        <span className="lfg-3d-tag" style={{ color: '#c74338' }}>+X шир.</span>
+        <span className="lfg-3d-tag" style={{ color: '#c74338' }}>{compact ? '+X' : '+X шир.'}</span>
       </Html>
       {/* +Y engineering -> -Z Three.js */}
       <Line points={[[0, 0, 0], [0, 0, -axisLen]]} color="#247858" lineWidth={2} />
       <Html zIndexRange={[1, 8]} position={[0, 0.03, -axisLen - 0.1]} center>
-        <span className="lfg-3d-tag" style={{ color: '#247858' }}>+Y глуб.</span>
+        <span className="lfg-3d-tag" style={{ color: '#247858' }}>{compact ? '+Y' : '+Y глуб.'}</span>
       </Html>
       {/* +Z engineering -> +Y Three.js */}
       <Line points={[[0, 0, 0], [0, axisLen, 0]]} color="#275c88" lineWidth={2} />
       <Html zIndexRange={[1, 8]} position={[0.04, axisLen + 0.08, 0]} center>
-        <span className="lfg-3d-tag" style={{ color: '#275c88' }}>+Z выс.</span>
+        <span className="lfg-3d-tag" style={{ color: '#275c88' }}>{compact ? '+Z' : '+Z выс.'}</span>
       </Html>
     </group>
   );
@@ -420,6 +451,7 @@ export function Scene3D({
   showAxes,
   showDimensions,
   showRoomPlanes,
+  compactViewport = false,
   captureRef,
 }: Scene3DProps) {
   const layout = useMemo(() => computeVisualLayout(resolved), [resolved]);
@@ -448,6 +480,7 @@ export function Scene3D({
         trigger={cameraTrigger}
         center={layout.boundsCenterThree}
         radius={layout.boundsRadiusMetres}
+        compactViewport={compactViewport}
         captureRef={captureRef}
       />
 
@@ -465,7 +498,7 @@ export function Scene3D({
         infiniteGrid
       />
 
-      {showAxes && <EngineeringAxes />}
+      {showAxes && <EngineeringAxes compact={compactViewport} />}
 
       {/* Ceiling & Tabletop Reference Planes */}
       {showRoomPlanes && (
@@ -491,11 +524,17 @@ export function Scene3D({
               gapSize={0.08}
             />
             {showDimensions && (
-              <Html zIndexRange={[1, 8]} position={[-roomSpanM / 2 + 0.1, 0.09, roomSpanM * 0.36]} center={false}>
+              <Html
+                zIndexRange={[1, 8]}
+                position={compactViewport ? [0, -0.22, roomSpanM * 0.2] : [-roomSpanM / 2 + 0.1, 0.09, roomSpanM * 0.36]}
+                center={compactViewport}
+              >
                 <span className={`lfg-3d-tag${layout.ceilingIsReal ? '' : ' lfg-3d-tag--warn'}`}>
                   {layout.ceilingIsReal
                     ? `Потолок: ${resolved.site.ceilingFromFloorMm!.value} мм`
-                    : 'Потолок не задан (условно)'}
+                    : compactViewport
+                      ? 'Потолок не задан'
+                      : 'Потолок не задан (условно)'}
                 </span>
               </Html>
             )}
@@ -528,11 +567,17 @@ export function Scene3D({
                 gapSize={0.07}
               />
               {showDimensions && (
-                <Html zIndexRange={[1, 8]} position={[-tableWidthM / 2 + 0.05, 0.06, tableDepthM / 2]} center={false}>
+                <Html
+                  zIndexRange={[1, 8]}
+                  position={compactViewport ? [0, -0.06, tableDepthM / 2 + 0.12] : [-tableWidthM / 2 + 0.05, 0.06, tableDepthM / 2]}
+                  center={compactViewport}
+                >
                   <span className={`lfg-3d-tag${layout.tabletopIsReferenceOnly ? ' lfg-3d-tag--warn' : ''}`}>
                     {layout.tabletopIsReal
                       ? `Столешница: ${resolved.site.tabletopFromFloorMm!.value} мм`
-                      : 'Уровень стола · высота от пола НЕ ЗАДАНА'}
+                      : compactViewport
+                        ? 'Стол: высота не задана'
+                        : 'Уровень стола · высота от пола НЕ ЗАДАНА'}
                   </span>
                 </Html>
               )}
@@ -542,7 +587,7 @@ export function Scene3D({
       )}
 
       {/* Luminaire Elements */}
-      {resolved.elements.map(element => {
+      {resolved.elements.map((element, elementIdx) => {
         const place = layout.elements[element.id];
         const pos = toThreeMetres({
           x: place.displayXMm,
@@ -569,12 +614,23 @@ export function Scene3D({
             : 0;
         const dimLabel =
           element.lowest.aboveTabletop.valueMm !== null
-            ? `${Math.round(element.lowest.aboveTabletop.valueMm)} мм над столом`
+            ? compactViewport
+              ? `${Math.round(element.lowest.aboveTabletop.valueMm)} мм`
+              : `${Math.round(element.lowest.aboveTabletop.valueMm)} мм над столом`
             : element.lowest.fromFloor.valueMm !== null
-              ? `${Math.round(element.lowest.fromFloor.valueMm)} мм от пола`
+              ? compactViewport
+                ? `${Math.round(element.lowest.fromFloor.valueMm)} мм`
+                : `${Math.round(element.lowest.fromFloor.valueMm)} мм от пола`
               : element.lowest.belowCeiling.valueMm !== null
-                ? `${Math.round(element.lowest.belowCeiling.valueMm)} мм под потолком`
-                : 'Уровень неизвестен';
+                ? compactViewport
+                  ? `−${Math.round(element.lowest.belowCeiling.valueMm)} мм`
+                  : `${Math.round(element.lowest.belowCeiling.valueMm)} мм под потолком`
+                : 'Уровень неизв.';
+
+        const showElementTitle = showDimensions && (!compactViewport || selected || resolved.elements.length === 1);
+        const shortName = element.name.split(' / ')[0];
+        // Stagger elevation badge vertically on compact screens so adjacent elements never collide
+        const elevFactor = compactViewport ? (elementIdx % 2 === 0 ? 0.38 : 0.68) : 0.5;
 
         return (
           <group key={element.id}>
@@ -657,15 +713,18 @@ export function Scene3D({
               })}
 
               {/* Element name / envelope tag */}
-              {showDimensions && (
+              {showElementTitle && (
                 <Html zIndexRange={[1, 8]} position={[0, heightM + 0.1, 0]} center>
                   <span
                     className={`lfg-3d-tag${
                       selected ? ' lfg-3d-tag--accent' : element.shape.type === 'envelope' ? ' lfg-3d-tag--warn' : ''
                     }`}
                   >
-                    {element.name} · {Math.round(element.geometry.widthMm)}×{Math.round(element.geometry.heightMm)} мм
-                    {element.shape.type === 'envelope' ? ' (габарит)' : ''}
+                    {compactViewport
+                      ? `${shortName} · ${Math.round(element.geometry.widthMm)}×${Math.round(element.geometry.heightMm)}`
+                      : `${element.name} · ${Math.round(element.geometry.widthMm)}×${Math.round(element.geometry.heightMm)} мм${
+                          element.shape.type === 'envelope' ? ' (габарит)' : ''
+                        }`}
                   </span>
                 </Html>
               )}
@@ -685,7 +744,7 @@ export function Scene3D({
                   dashSize={0.05}
                   gapSize={0.035}
                 />
-                <Html zIndexRange={[1, 8]} position={[pos[0], (dimBaseY + pos[1]) / 2, pos[2]]} center>
+                <Html zIndexRange={[1, 8]} position={[pos[0], dimBaseY + (pos[1] - dimBaseY) * elevFactor, pos[2]]} center>
                   <span className={`lfg-3d-tag${place.hasStagedAny ? ' lfg-3d-tag--warn' : ''}`}>
                     {dimLabel}
                   </span>
