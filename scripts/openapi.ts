@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { compositionSchema } from '../src/geometry/schema.ts';
 import { resolvedCompositionSchema } from '../src/geometry/result.ts';
 import { quickRfqRequestSchema, quickRfqTextSchema } from '../src/rfq/quick.ts';
+import { photoAnalysisCapabilitiesSchema, photoAnalysisInputSchema, photoAnalysisResponseSchema } from '../src/photo-analysis/contract.ts';
 
 function jsonSchema(schema: z.ZodType) {
   const { $schema: _dialect, ...value } = z.toJSONSchema(schema, { target: 'draft-2020-12', reused: 'inline' });
@@ -36,7 +37,7 @@ function response(description: string, schema: object) {
 
 const specification = {
   openapi: '3.1.0',
-  info: { title: 'LIGHT FORGE Geometry API', version: '1.0.0' },
+  info: { title: 'LIGHT FORGE API', version: '1.0.0' },
   paths: {
     '/api/geometry/resolve': {
       post: {
@@ -94,6 +95,38 @@ const specification = {
         },
       },
     },
+    '/api/photo-analysis': {
+      get: {
+        operationId: 'getPhotoAnalysisCapabilities',
+        responses: { 200: response('Analysis mode and upload limits', { $ref: '#/components/schemas/PhotoAnalysisCapabilities' }) },
+      },
+      post: {
+        operationId: 'analyzeSelectedPhotos',
+        description: 'Analyze selected originals. In metadata_only mode only pixel dimensions are returned.',
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object', required: ['input'], additionalProperties: false,
+                properties: { input: { type: 'string', description: 'JSON-encoded PhotoAnalysisInput' } },
+                patternProperties: { '^photo:[A-Za-z0-9_-]{1,64}$': { type: 'string', format: 'binary' } },
+              },
+              encoding: { input: { contentType: 'text/plain' } },
+            },
+          },
+        },
+        responses: {
+          200: response('Photo metadata and visual estimates, when available', { $ref: '#/components/schemas/PhotoAnalysisResponse' }),
+          400: response('Malformed multipart or JSON manifest', { $ref: '#/components/schemas/PhotoAnalysisError' }),
+          403: response('Cross-site request rejected', { $ref: '#/components/schemas/PhotoAnalysisError' }),
+          413: response('Request exceeds size limit', { $ref: '#/components/schemas/PhotoAnalysisError' }),
+          415: response('Unsupported media type', { $ref: '#/components/schemas/PhotoAnalysisError' }),
+          422: response('Invalid photo manifest or original file', { $ref: '#/components/schemas/PhotoAnalysisError' }),
+          502: response('Analysis engine failure or invalid output', { $ref: '#/components/schemas/PhotoAnalysisError' }),
+        },
+      },
+    },
     '/api/health': {
       get: {
         operationId: 'health',
@@ -112,6 +145,18 @@ const specification = {
       ResolvedComposition: jsonSchema(resolvedCompositionSchema),
       QuickRfqRequest: jsonSchema(quickRfqRequestSchema),
       QuickRfqText: jsonSchema(quickRfqTextSchema),
+      PhotoAnalysisInput: jsonSchema(photoAnalysisInputSchema),
+      PhotoAnalysisCapabilities: jsonSchema(photoAnalysisCapabilitiesSchema),
+      PhotoAnalysisResponse: jsonSchema(photoAnalysisResponseSchema),
+      PhotoAnalysisError: {
+        ...error,
+        properties: {
+          ...error.properties,
+          error: { type: 'string', enum: ['invalid_body', 'cross_site_request', 'request_too_large', 'unsupported_media_type',
+            'invalid_photo_list', 'invalid_photo', 'invalid_engine_response', 'engine_error'] },
+          message: { type: 'string' },
+        },
+      },
       RfqError: {
         ...error,
         properties: { ...error.properties, error: { type: 'string' }, message: { type: 'string' } },
