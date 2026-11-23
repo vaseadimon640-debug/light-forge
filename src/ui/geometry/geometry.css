@@ -1,0 +1,963 @@
+/* ==========================================================================
+   LIGHT FORGE · 3D Geometry Workbench Styles (self-contained)
+   Minimalist light architectural studio aesthetic — desktop & mobile ready.
+   ========================================================================== */
+
+.lfg-root {
+  --bg-canvas: #f4f3ef;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f8f7f4;
+  --bg-muted: #ecebe6;
+  --bg-hover: #f0efe9;
+  --ink-primary: #1a2326;
+  --ink-secondary: #48585e;
+  --ink-muted: #6f7f85;
+  --ink-inverse: #ffffff;
+
+  --accent: #244752;
+  --accent-hover: #1b3740;
+  --accent-soft: #e9f0f2;
+  --accent-border: #b8cfd5;
+
+  --brass: #8c6a2f;
+  --brass-soft: #faf4e6;
+  --brass-border: #e2d1ab;
+
+  --status-spec-bg: #e7f3ee;
+  --status-spec-ink: #1e5b44;
+  --status-est-bg: #fdf3e1;
+  --status-est-ink: #8a5514;
+  --status-unk-bg: #f1f0ec;
+  --status-unk-ink: #647176;
+
+  --danger: #b43c32;
+  --danger-soft: #fdf0ef;
+  --danger-border: #edc8c4;
+  --warning: #925c12;
+  --warning-soft: #fdf6e7;
+  --warning-border: #ead2a1;
+  --success: #1f684c;
+  --success-soft: #ebf6f0;
+
+  --border: #dfe2e0;
+  --border-strong: #c5ccca;
+  --focus-ring: 0 0 0 3px rgba(36, 71, 82, 0.16);
+  --shadow-xs: 0 1px 2px rgba(20, 32, 36, 0.05);
+  --shadow-sm: 0 3px 10px rgba(20, 32, 36, 0.06), 0 1px 2px rgba(20, 32, 36, 0.04);
+  --shadow-md: 0 12px 30px rgba(20, 32, 36, 0.1);
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', 'Liberation Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Liberation Mono', ui-monospace, monospace;
+
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-canvas);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+.lfg-root *,
+.lfg-root *::before,
+.lfg-root *::after {
+  box-sizing: border-box;
+}
+
+.lfg-root button,
+.lfg-root input,
+.lfg-root select {
+  font: inherit;
+}
+
+.lfg-root input,
+.lfg-root select {
+  color: inherit;
+}
+
+.lfg-root button {
+  cursor: pointer;
+}
+
+.lfg-root button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.lfg-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.lfg-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.lfg-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* ==========================================================================
+   Topbar
+   ========================================================================== */
+
+.lfg-topbar {
+  min-height: 58px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  z-index: 20;
+}
+
+.lfg-brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.lfg-brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--ink-inverse);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.lfg-brand-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1.15;
+}
+
+.lfg-brand-sub {
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.lfg-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+/* ==========================================================================
+   Buttons & Segments
+   ========================================================================== */
+
+.lfg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 130ms ease, border-color 130ms ease, color 130ms ease;
+}
+
+.lfg-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.lfg-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.lfg-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--ink-inverse);
+  font-weight: 600;
+}
+
+.lfg-btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.lfg-btn--brass {
+  background: var(--brass-soft);
+  border-color: var(--brass-border);
+  color: var(--brass);
+  font-weight: 600;
+}
+
+.lfg-btn--brass:hover:not(:disabled) {
+  background: #f4e8cd;
+}
+
+.lfg-btn--danger {
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+.lfg-btn--danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+.lfg-btn--subtle {
+  background: var(--bg-subtle);
+  border-color: transparent;
+  color: var(--ink-secondary);
+}
+
+.lfg-btn--subtle:hover:not(:disabled) {
+  background: var(--bg-muted);
+  border-color: var(--border);
+  color: var(--ink-primary);
+}
+
+.lfg-btn--sm {
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 12px;
+  border-radius: var(--radius-xs);
+}
+
+.lfg-btn--active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.lfg-segment {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  gap: 2px;
+}
+
+.lfg-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 27px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.lfg-seg-btn[aria-pressed='true'],
+.lfg-seg-btn[aria-selected='true'] {
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+  font-weight: 600;
+  border-color: rgba(26, 35, 38, 0.08);
+  box-shadow: var(--shadow-xs);
+}
+
+/* ==========================================================================
+   Main Split Studio Layout (Viewport + Right Inspector)
+   ========================================================================== */
+
+.lfg-workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.38fr) minmax(370px, 470px);
+  height: calc(100dvh - 58px);
+  min-height: 580px;
+  overflow: hidden;
+}
+
+.lfg-viewport-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: #efeee9;
+  border-right: 1px solid var(--border);
+  min-width: 0;
+  min-height: 0;
+}
+
+.lfg-canvas-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 360px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.lfg-canvas-wrap canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  touch-action: none;
+}
+
+/* Floating minimal viewport HUD bars */
+.lfg-hud-top {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  pointer-events: none;
+  z-index: 10;
+  flex-wrap: wrap;
+}
+
+.lfg-hud-group {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 5px 7px;
+  box-shadow: var(--shadow-sm);
+}
+
+.lfg-hud-bottom {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  pointer-events: none;
+  z-index: 10;
+  flex-wrap: wrap;
+}
+
+.lfg-cad-notice {
+  pointer-events: auto;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  color: var(--ink-secondary);
+  font-size: 11.5px;
+  box-shadow: var(--shadow-xs);
+  max-width: 520px;
+}
+
+.lfg-material-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 14px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+}
+
+.lfg-swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.lfg-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(26, 35, 38, 0.16);
+  padding: 0;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.lfg-swatch:hover {
+  transform: scale(1.08);
+}
+
+.lfg-swatch--active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px var(--accent);
+}
+
+/* ==========================================================================
+   Right Inspector Pane
+   ========================================================================== */
+
+.lfg-inspector {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lfg-inspector-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.lfg-inspector-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.lfg-inspector-tab {
+  min-height: 31px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lfg-inspector-tab[aria-selected='true'] {
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+  font-weight: 650;
+  box-shadow: var(--shadow-xs);
+}
+
+.lfg-inspector-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ==========================================================================
+   Cards, Form Controls, Axis Inputs, Tables
+   ========================================================================== */
+
+.lfg-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  padding: 12px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lfg-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lfg-section-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-secondary);
+}
+
+.lfg-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 10px;
+}
+
+.lfg-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.lfg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lfg-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.lfg-input,
+.lfg-select {
+  width: 100%;
+  min-height: 34px;
+  padding: 5px 9px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  font-size: 13px;
+}
+
+.lfg-input:focus,
+.lfg-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.lfg-input--err {
+  border-color: var(--danger);
+  background: #fffafa;
+}
+
+.lfg-axis-box {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+.lfg-axis-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.lfg-axis-box--err {
+  border-color: var(--danger);
+}
+
+.lfg-axis-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.lfg-axis-unit {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--ink-muted);
+}
+
+.lfg-axis-src {
+  border: 0;
+  border-left: 1px solid var(--border);
+  padding: 0 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  max-width: 74px;
+  cursor: pointer;
+}
+
+.lfg-axis-src--user {
+  background: #eef2f4;
+  color: #27444e;
+}
+
+.lfg-axis-src--documentation {
+  background: var(--status-spec-bg);
+  color: var(--status-spec-ink);
+}
+
+.lfg-axis-src--estimated {
+  background: var(--status-est-bg);
+  color: var(--status-est-ink);
+}
+
+.lfg-axis-empty {
+  display: inline-flex;
+  align-items: center;
+  border-left: 1px solid var(--border);
+  padding: 0 7px;
+  background: var(--status-unk-bg);
+  color: var(--status-unk-ink);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+/* Badges */
+.lfg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.lfg-badge--specified {
+  background: var(--status-spec-bg);
+  color: var(--status-spec-ink);
+}
+
+.lfg-badge--estimated {
+  background: var(--status-est-bg);
+  color: var(--status-est-ink);
+}
+
+.lfg-badge--unknown {
+  background: var(--status-unk-bg);
+  color: var(--status-unk-ink);
+}
+
+.lfg-badge--danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.lfg-badge--accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.lfg-badge--brass {
+  background: var(--brass-soft);
+  color: var(--brass);
+  border: 1px solid var(--brass-border);
+}
+
+/* List selector chips */
+.lfg-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lfg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.lfg-chip--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--ink-inverse);
+  font-weight: 600;
+}
+
+/* Alerts */
+.lfg-alert {
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  font-size: 12px;
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lfg-alert--warning {
+  background: var(--warning-soft);
+  border-color: var(--warning-border);
+  color: var(--warning);
+}
+
+.lfg-alert--danger {
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.lfg-alert--info {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+/* Engineering data table */
+.lfg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.lfg-table th,
+.lfg-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.lfg-table th {
+  font-weight: 600;
+  color: var(--ink-secondary);
+  background: var(--bg-subtle);
+}
+
+.lfg-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.lfg-formula {
+  padding: 7px 9px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-strong);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-secondary);
+  overflow-wrap: anywhere;
+}
+
+.lfg-hint {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+.lfg-err-text {
+  font-size: 11.5px;
+  color: var(--danger);
+  font-weight: 500;
+}
+
+/* 3D HTML Label Styling (clean architectural tag, no glass blur) */
+.lfg-3d-tag {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #cfd6d8;
+  color: #1a2326;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(20, 32, 36, 0.12);
+  pointer-events: none;
+  user-select: none;
+}
+
+.lfg-3d-tag--warn {
+  background: #fdf6e7;
+  border-color: #e2c68a;
+  color: #82510f;
+}
+
+.lfg-3d-tag--accent {
+  background: #244752;
+  border-color: #244752;
+  color: #ffffff;
+}
+
+/* Modal & Toast */
+.lfg-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(20, 30, 34, 0.38);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.lfg-modal {
+  width: 100%;
+  max-width: 600px;
+  max-height: 85dvh;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lfg-modal-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lfg-modal-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lfg-saved-row {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lfg-toast {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 70;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: #1a2428;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 500;
+  box-shadow: var(--shadow-md);
+}
+
+/* ==========================================================================
+   Responsive Mobile & Tablet Adaptation
+   ========================================================================== */
+
+@media (max-width: 1024px) {
+  .lfg-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    overflow: visible;
+  }
+
+  .lfg-viewport-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .lfg-canvas-wrap {
+    height: 46dvh;
+    min-height: 320px;
+  }
+
+  .lfg-inspector {
+    overflow: visible;
+  }
+
+  .lfg-inspector-body {
+    overflow: visible;
+  }
+}
+
+@media (max-width: 640px) {
+  .lfg-topbar {
+    padding: 8px 12px;
+  }
+
+  .lfg-brand-sub {
+    display: none;
+  }
+
+  .lfg-grid-2,
+  .lfg-grid-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lfg-hud-top {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+  }
+
+  .lfg-hud-bottom {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .lfg-cad-notice {
+    max-width: none;
+    width: 100%;
+    padding: 5px 8px;
+    font-size: 10.5px;
+    line-height: 1.3;
+  }
+
+  .lfg-inspector-tab {
+    font-size: 11px;
+    padding: 4px 2px;
+  }
+
+  .lfg-saved-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
