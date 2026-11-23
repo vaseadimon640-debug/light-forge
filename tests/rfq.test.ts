@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { POST } from '../src/app/api/rfq/quick/route.ts';
 import { createMyline } from '../src/domain/myline.ts';
-import { createMylineComposition } from '../src/geometry/examples.ts';
+import { newComponent, newProject } from '../src/domain/project.ts';
+import { createGeometryExample, createMylineComposition } from '../src/geometry/examples.ts';
 import { buildQuickRfq, RfqConflict, textQuickRfq } from '../src/rfq/quick.ts';
 
 const endpoint = 'http://test/api/rfq/quick';
@@ -36,6 +37,46 @@ test('known geometry fills absent dimensions; mismatched sizes and mounting leve
   delete project.components[0].dimensions.width;
   composition.elements[0].position.lowest.offsetMm = { value: 902, source: 'user' };
   assert.throws(() => buildQuickRfq({ project, composition }), RfqConflict);
+});
+
+function linkedEngineeringExample() {
+  const project = newProject();
+  const composition = createGeometryExample();
+  composition.projectId = project.id;
+  project.components = composition.elements.map(element => {
+    const component = newComponent(element.shape.type === 'envelope' ? element.shape.intendedShape : element.shape.type);
+    element.productComponentId = component.id;
+    return component;
+  });
+  return { project, composition };
+}
+
+test('RFQ keeps canopy dimensions and individual calculated cable and strap lengths in both languages', async () => {
+  const input = linkedEngineeringExample();
+  const response = await POST(post(input, '?lang=en-zh'));
+  assert.equal(response.status, 200);
+  const { text } = await response.json();
+  assert.match(text, /Round canopy · Diameter[^\n]*240 mm/);
+  assert.match(text, /Round canopy · Drop below ceiling[^\n]*60 mm/);
+  assert.match(text, /Load-bearing cable \(cable\) · Path length[^\n]*1150 mm/);
+  assert.match(text, /Load-bearing cable \(cable\) · Cut length for quotation, including allowance[^\n]*1200 mm/);
+  assert.match(text, /Decorative strap \(strap\) · Cut length for quotation, including allowance[^\n]*1283\.91 mm/);
+  assert.match(text, /装饰吊带（strap） · 报价参考裁切长度（含余量）/);
+  assert.match(text, /Canopy and suspension fabrication lengths[^\n]*To be confirmed by manufacturer/);
+});
+
+test('RFQ distinguishes estimated, missing and invalid lengths', () => {
+  const input = linkedEngineeringExample();
+  delete input.composition.suspensions[0].allowanceMm;
+  input.composition.canopies[0].dropMm.source = 'estimated';
+  let text = textQuickRfq(buildQuickRfq(input), 'en');
+  assert.match(text, /Load-bearing cable \(cable\) · Path length: 1150 mm · Estimated/);
+  assert.match(text, /Load-bearing cable \(cable\) · Cut length for quotation, including allowance: To be confirmed/);
+
+  input.composition.elements[0].position.lowest = { datum: 'floor', offsetMm: { value: 2990, source: 'user' } };
+  text = textQuickRfq(buildQuickRfq(input), 'en');
+  assert.match(text, /Load-bearing cable \(cable\): Invalid mounting geometry/);
+  assert.doesNotMatch(text, /Load-bearing cable \(cable\) · (Path|Cut) length/);
 });
 
 test('estimates stay labelled and the text route supports bilingual responses', async () => {

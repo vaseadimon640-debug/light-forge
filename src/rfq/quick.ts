@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { dimensions, dimensionKeys, directions, finishes, materials, productTypes, projectSchema, sources, type DimensionKey, type Measurement } from '../domain/project.ts';
 import { compositionSchema } from '../geometry/schema.ts';
 import { resolveComposition } from '../geometry/resolve.ts';
+import type { ResolvedComposition, ResolvedValue } from '../geometry/result.ts';
 
 export const languageSchema = z.enum(['en', 'zh', 'en-zh']);
 export const quickRfqRequestSchema = z.strictObject({
@@ -33,6 +34,52 @@ const measured = (measurement: Measurement | undefined, unit = ''): Cell => {
   const [, en, zh] = sources[measurement.source];
   return pair(`${number} · ${en}`, `${number} · ${zh}`);
 };
+
+const lengthMetric = new Intl.NumberFormat('en', { useGrouping: false, maximumFractionDigits: 2 });
+
+function calculatedLength(length: ResolvedValue, format = metric): Cell {
+  if (length.valueMm === null) return unknown;
+  const number = `${format.format(length.valueMm)} mm`;
+  return length.quality === 'estimated'
+    ? pair(`${number} · Estimated`, `${number} · 估算`)
+    : pair(`${number} · Calculated from specified data`, `${number} · 按已知数据计算`);
+}
+
+function addMountingDetails(rows: Section['rows'], resolved: ResolvedComposition) {
+  for (const canopy of resolved.canopies) {
+    const name = canopy.name;
+    const shape = canopy.footprint;
+    rows.push([pair(`${name} · Canopy shape`, `${name} · 吸顶盘形状`),
+      shape.type === 'round' ? pair('Round', '圆形') : pair('Rectangular', '矩形')]);
+    if (shape.type === 'round') {
+      rows.push([pair(`${name} · Diameter`, `${name} · 直径`), measured(shape.diameterMm, ' mm')]);
+    } else {
+      rows.push(
+        [pair(`${name} · Width`, `${name} · 宽度`), measured(shape.widthMm, ' mm')],
+        [pair(`${name} · Depth`, `${name} · 深度`), measured(shape.depthMm, ' mm')],
+      );
+    }
+    rows.push([pair(`${name} · Drop below ceiling`, `${name} · 向下突出高度`), measured(canopy.dropMm, ' mm')]);
+  }
+
+  for (const suspension of resolved.suspensions) {
+    const name = suspension.type === 'loadBearingCable'
+      ? ['Load-bearing cable', '承重吊索']
+      : ['Decorative strap', '装饰吊带'];
+    const en = `${name[0]} (${suspension.id})`;
+    const zh = `${name[1]}（${suspension.id}）`;
+    if (suspension.status === 'invalid') {
+      rows.push([pair(en, zh), pair('Invalid mounting geometry. Verify attachment and exit levels.',
+        '安装几何关系无效，请核对连接点与出线口的标高。')]);
+      continue;
+    }
+    rows.push(
+      [pair(`${en} · Path length`, `${zh} · 路径长度`), calculatedLength(suspension.pathLength, lengthMetric)],
+      [pair(`${en} · Cut length for quotation, including allowance`, `${zh} · 报价参考裁切长度（含余量）`),
+        calculatedLength(suspension.cutLength, lengthMetric)],
+    );
+  }
+}
 
 const blockedBrass = pair(
   'Use solid brass. Brass-coloured steel, aluminium and plated substitutes require prior written approval.',
@@ -187,9 +234,9 @@ export function buildQuickRfq(input: unknown): QuickRfq {
       for (const element of resolved.elements) {
         if (project.mounting.placements.some(placement => placement.id === element.id)) continue;
         const level = element.lowest.fromFloor;
-        rows.push([pair(`${element.name} · lowest point above floor`, `${element.name} · 灯具最低点距地面`), level.valueMm === null
-          ? unknown : pair(`${metric.format(level.valueMm)} mm · ${level.quality === 'estimated' ? 'Estimated' : 'Calculated from specified data'}`, `${metric.format(level.valueMm)} mm · ${level.quality === 'estimated' ? '估算' : '按已知数据计算'}`)]);
+        rows.push([pair(`${element.name} · lowest point above floor`, `${element.name} · 灯具最低点距地面`), calculatedLength(level)]);
       }
+      addMountingDetails(rows, resolved);
     }
     rows.push([pair('Canopy and suspension fabrication lengths', '吸顶盘及吊挂制作长度'), unknown]);
     rendered.push({ title: pair('Mounting references', '安装基准'), rows });
