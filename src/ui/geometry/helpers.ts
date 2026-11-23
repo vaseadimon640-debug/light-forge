@@ -555,18 +555,33 @@ export function switchCanopyFootprint(
     };
   }
   if (nextType === 'round' && canopy.footprint.type === 'rectangular') {
-    const anchors = [...canopy.exits, ...canopy.ceilingFixings];
-    const maxAnchorRadius = anchors.reduce(
-      (max, anchor) => Math.max(max, Math.hypot(anchor.point.x.value, anchor.point.y.value)),
-      0,
-    );
-    const minNeededDiameter = maxAnchorRadius > 0 ? Math.ceil(maxAnchorRadius * 2) : 0;
-    const base = Math.max(canopy.footprint.widthMm.value, canopy.footprint.depthMm.value, minNeededDiameter);
+    const candidates: Array<{ value: number; sources: Axis['source'][] }> = [
+      { value: canopy.footprint.widthMm.value, sources: [canopy.footprint.widthMm.source] },
+      { value: canopy.footprint.depthMm.value, sources: [canopy.footprint.depthMm.source] },
+    ];
+    for (const anchor of [...canopy.exits, ...canopy.ceilingFixings]) {
+      const radius = Math.hypot(anchor.point.x.value, anchor.point.y.value);
+      if (radius > 0) {
+        candidates.push({
+          value: Math.ceil(radius * 2),
+          sources: [anchor.point.x.source, anchor.point.y.source],
+        });
+      }
+    }
+    const base = candidates.reduce((max, item) => Math.max(max, item.value), 0);
+    const determiningSources = candidates
+      .filter(item => item.value === base)
+      .flatMap(item => item.sources);
+    const source: Axis['source'] = determiningSources.includes('estimated')
+      ? 'estimated'
+      : determiningSources.includes('user')
+        ? 'user'
+        : 'documentation';
     return {
       ...canopy,
       footprint: {
         type: 'round',
-        diameterMm: { value: base, source: canopy.footprint.widthMm.source },
+        diameterMm: { value: base, source },
       },
     };
   }

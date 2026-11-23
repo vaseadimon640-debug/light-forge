@@ -105,6 +105,93 @@ test('switchCanopyFootprint preserves anchor validity between round and rectangu
   assert.deepEqual(safeResolveLocal({ ...example, canopies: [backToRound] }).issues, []);
 });
 
+test('switchCanopyFootprint preserves estimated status when round diameter depends on an estimated size or fixing coordinate', () => {
+  const example = createGeometryExample();
+  const baseCanopy = example.canopies[0];
+
+  // Width 240 mm (documentation), depth 260 mm (estimated) -> diameter 260 mm (estimated)
+  const rectWithEstimatedDepth = {
+    ...baseCanopy,
+    footprint: {
+      type: 'rectangular' as const,
+      widthMm: { value: 240, source: 'documentation' as const },
+      depthMm: { value: 260, source: 'estimated' as const },
+    },
+    exits: [
+      {
+        ...baseCanopy.exits[0],
+        point: {
+          x: { value: 0, source: 'documentation' as const },
+          y: { value: 0, source: 'documentation' as const },
+          z: { value: 0, source: 'documentation' as const },
+        },
+      },
+    ],
+    ceilingFixings: [
+      {
+        ...baseCanopy.ceilingFixings[0],
+        point: {
+          x: { value: 0, source: 'documentation' as const },
+          y: { value: 0, source: 'documentation' as const },
+          z: { value: baseCanopy.dropMm.value, source: 'documentation' as const },
+        },
+      },
+    ],
+  };
+  const roundFromDepth = switchCanopyFootprint(rectWithEstimatedDepth, 'round');
+  assert.equal(roundFromDepth.footprint.type, 'round');
+  if (roundFromDepth.footprint.type === 'round') {
+    assert.equal(roundFromDepth.footprint.diameterMm.value, 260);
+    assert.equal(roundFromDepth.footprint.diameterMm.source, 'estimated');
+  }
+
+  // Both dimensions 240 mm (documentation), but ceiling fixing at (100 doc, 100 estimated) forces diameter 283 mm -> estimated
+  const rectWithEstimatedFixing = {
+    ...rectWithEstimatedDepth,
+    footprint: {
+      type: 'rectangular' as const,
+      widthMm: { value: 240, source: 'documentation' as const },
+      depthMm: { value: 240, source: 'documentation' as const },
+    },
+    ceilingFixings: [
+      {
+        ...baseCanopy.ceilingFixings[0],
+        point: {
+          x: { value: 100, source: 'documentation' as const },
+          y: { value: 100, source: 'estimated' as const },
+          z: { value: baseCanopy.dropMm.value, source: 'documentation' as const },
+        },
+      },
+    ],
+  };
+  const roundFromFixing = switchCanopyFootprint(rectWithEstimatedFixing, 'round');
+  assert.equal(roundFromFixing.footprint.type, 'round');
+  if (roundFromFixing.footprint.type === 'round') {
+    assert.equal(roundFromFixing.footprint.diameterMm.value, 283);
+    assert.equal(roundFromFixing.footprint.diameterMm.source, 'estimated');
+  }
+  assert.deepEqual(
+    safeResolveLocal({ ...example, canopies: [roundFromFixing], suspensions: [] }).issues,
+    [],
+  );
+
+  // Pure documentation dimensions & centered anchors preserve documentation source
+  const rectPureDoc = {
+    ...rectWithEstimatedDepth,
+    footprint: {
+      type: 'rectangular' as const,
+      widthMm: { value: 240, source: 'documentation' as const },
+      depthMm: { value: 240, source: 'documentation' as const },
+    },
+  };
+  const roundPureDoc = switchCanopyFootprint(rectPureDoc, 'round');
+  assert.equal(roundPureDoc.footprint.type, 'round');
+  if (roundPureDoc.footprint.type === 'round') {
+    assert.equal(roundPureDoc.footprint.diameterMm.value, 240);
+    assert.equal(roundPureDoc.footprint.diameterMm.source, 'documentation');
+  }
+});
+
 test('removeSuspensionGuidePoint deletes single guides and reverts to straight when last guide is removed', () => {
   const example = createGeometryExample();
   const strap = example.suspensions[1];
