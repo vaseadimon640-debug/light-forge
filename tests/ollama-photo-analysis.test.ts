@@ -5,7 +5,7 @@ import { createOllamaPhotoAnalysisEngine } from '../src/server/photo-analysis-ol
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+hVkcAAAAASUVORK5CYII=', 'base64');
 const photo = { id: 'front', name: 'front.png', type: 'image/png', size: png.length };
-const suggestion = { confidence: 'medium', payload: { kind: 'productKind', value: 'pendant' } };
+const suggestion = { confidence: 'low', note: 'Визуальная оценка типа светильника.', payload: { kind: 'productKind', value: 'pendant' } };
 
 function request(ids = ['front']) {
   const photos = ids.map(id => ({ ...photo, id }));
@@ -15,8 +15,8 @@ function request(ids = ['front']) {
   return new Request('http://localhost/api/photo-analysis', { method: 'POST', body: form });
 }
 
-function ollamaAnswer(suggestions: unknown[]) {
-  return Response.json({ done: true, message: { content: JSON.stringify({ suggestions }) } });
+function ollamaAnswer(fixture: unknown) {
+  return Response.json({ done: true, message: { content: JSON.stringify({ fixture }) } });
 }
 
 test('Ollama adapter sends only images to loopback and ties cached estimates to selected photo IDs', async () => {
@@ -32,7 +32,7 @@ test('Ollama adapter sends only images to loopback and ties cached estimates to 
     assert.deepEqual(body.messages[0].images, [png.toString('base64')]);
     assert.equal(JSON.stringify(body).includes('front.png'), false);
     assert.equal('tools' in body, false);
-    return ollamaAnswer([suggestion]);
+    return ollamaAnswer('pendant');
   });
   const handlers = createPhotoAnalysisHandlers(engine);
   const response = await handlers.POST(request(['front', 'copy']));
@@ -48,9 +48,7 @@ test('Ollama adapter sends only images to loopback and ties cached estimates to 
 });
 
 test('Ollama adapter refuses unsupported output and reports an unavailable local model', async () => {
-  const invalid = createPhotoAnalysisHandlers(createOllamaPhotoAnalysisEngine(async () => ollamaAnswer([
-    { confidence: 'high', payload: { kind: 'dimension', valueMm: 100 } },
-  ])));
+  const invalid = createPhotoAnalysisHandlers(createOllamaPhotoAnalysisEngine(async () => ollamaAnswer({ kind: 'dimension', valueMm: 100 })));
   assert.equal((await invalid.POST(request())).status, 502);
 
   const missing = createPhotoAnalysisHandlers(createOllamaPhotoAnalysisEngine(async () =>
@@ -58,6 +56,15 @@ test('Ollama adapter refuses unsupported output and reports an unavailable local
   const unavailable = await missing.POST(request());
   assert.equal(unavailable.status, 503);
   assert.equal((await unavailable.json()).error, 'engine_unavailable');
+});
+
+test('Ollama adapter abstains on images without an identifiable fixture type', async () => {
+  for (const fixture of ['no_fixture', 'unknown']) {
+    const handlers = createPhotoAnalysisHandlers(createOllamaPhotoAnalysisEngine(async () => ollamaAnswer(fixture)));
+    const response = await handlers.POST(request());
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).suggestions, []);
+  }
 });
 
 test('Ollama adapter rejects concurrent work while the local model is running', async () => {
@@ -68,7 +75,7 @@ test('Ollama adapter rejects concurrent work while the local model is running', 
   const handlers = createPhotoAnalysisHandlers(createOllamaPhotoAnalysisEngine(async () => {
     markStarted();
     await pending;
-    return ollamaAnswer([]);
+    return ollamaAnswer('no_fixture');
   }));
   const first = handlers.POST(request());
   await started;
