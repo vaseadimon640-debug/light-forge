@@ -55,30 +55,54 @@ test('mergeSearchResults deduplicates by canonical URL and prefers verified_orig
   assert.equal(mergedB[0].category, 'verified_original');
 });
 
-test('extractComparisonSpec reflects real catalogue data and keeps unconfirmed finish/specs honest', () => {
+test('extractComparisonSpec reflects documented MYLINE specifications from PR #11 and keeps absent specs honest', () => {
   const [myline, myring] = catalogueSearch('Emmemobili MYLINE', 'deep');
+  assert.ok(myline.specifications, 'MYLINE catalogue entry should include documented specifications');
 
-  const mylineSpec = extractComparisonSpec(myline, 'ICBA02');
-  assert.equal(mylineSpec.design.confirmed, true);
-  assert.match(mylineSpec.design.value, /Люстра/);
-  assert.match(mylineSpec.design.value, /Adele Martelli/);
+  // ICBA02 (900 mm ring): filters lighting configurations to 900 mm showing BOTH up and down
+  const spec900 = extractComparisonSpec(myline, 'ICBA02');
+  assert.equal(spec900.design.confirmed, true);
+  assert.match(spec900.design.value, /Люстра/);
+  assert.match(spec900.design.value, /Подвесное кольцо/);
+  assert.match(spec900.design.value, /Adele Martelli/);
 
-  assert.equal(mylineSpec.dimensions.confirmed, true);
-  assert.match(mylineSpec.dimensions.value, /ICBA02 · 900 × 60 × 700 мм/);
+  assert.equal(spec900.dimensions.confirmed, true);
+  assert.match(spec900.dimensions.value, /ICBA02 · 900 × 60 × 700 мм/);
+  assert.match(spec900.dimensions.hint ?? '', /Латунное кольцо/);
+  assert.match(spec900.dimensions.hint ?? '', /2000 мм/);
 
-  assert.equal(mylineSpec.materials.confirmed, true);
-  assert.match(mylineSpec.materials.value, /Латунные кольца/);
-  assert.match(mylineSpec.materials.value, /кожаные ремни/);
+  assert.equal(spec900.materials.confirmed, true);
+  assert.match(spec900.materials.value, /Кольцо: Латунь/);
+  assert.match(spec900.materials.value, /Декоративные ремни: Кожа/);
 
-  // Finish MUST stay separate from material and remain unconfirmed when not explicitly stated
-  assert.equal(mylineSpec.finish.confirmed, false);
+  assert.equal(spec900.finish.confirmed, true);
+  assert.match(spec900.finish.value, /Natural Satin Brass/);
+  assert.match(spec900.finish.value, /Burnished Hand-Brushed Brass/);
+  assert.match(spec900.finish.value, /Brezza Leather/);
 
-  assert.equal(mylineSpec.lighting.confirmed, true);
-  assert.match(mylineSpec.lighting.value, /LED/);
-  assert.match(mylineSpec.lighting.value, /DALI/);
-  assert.equal(mylineSpec.documentation.confirmed, true);
+  assert.equal(spec900.lighting.confirmed, true);
+  assert.match(spec900.lighting.value, /LED strip 24 В/);
+  assert.match(spec900.lighting.value, /DALI/);
+  assert.match(spec900.lighting.value, /900 мм вверх: 59 Вт/);
+  assert.match(spec900.lighting.value, /900 мм вниз: 59 Вт/);
+  assert.doesNotMatch(spec900.lighting.value, /700 мм/);
+  assert.match(spec900.lighting.hint ?? '', /не привязаны к конкретному артикулу/);
+  assert.equal(spec900.documentation.confirmed, true);
 
-  // Myring Table has no variants, PDF, or dimming in starter catalogue — must remain honest/unconfirmed
+  // ICBA01 (700 mm ring): filters lighting configurations to 700 mm showing BOTH up (45 W) and down (44 W)
+  const spec700 = extractComparisonSpec(myline, 'ICBA01');
+  assert.match(spec700.dimensions.value, /ICBA01 · 700 × 60 × 550 мм/);
+  assert.match(spec700.lighting.value, /700 мм вверх: 45 Вт/);
+  assert.match(spec700.lighting.value, /700 мм вниз: 44 Вт/);
+  assert.doesNotMatch(spec700.lighting.value, /900 мм/);
+
+  // Without specifications object, finish MUST remain unconfirmed (separate from material)
+  const { specifications: _omitted, ...withoutSpecs } = myline;
+  const fallbackSpec = extractComparisonSpec(withoutSpecs, 'ICBA02');
+  assert.equal(fallbackSpec.finish.confirmed, false);
+  assert.match(fallbackSpec.materials.value, /Латунные кольца/);
+
+  // Myring Table has no variants, PDF, specifications, or dimming — must remain honestly unconfirmed
   const myringSpec = extractComparisonSpec(myring);
   assert.equal(myringSpec.dimensions.confirmed, false);
   assert.equal(myringSpec.materials.confirmed, false);
@@ -137,96 +161,4 @@ test('buildReviewPrompt focuses on chosen card while preserving Original not ver
   assert.match(prompt, /"results"/);
 });
 
-test('extractComparisonSpec renders documented PR #11 specifications and filters lighting by ringWidthMm keeping both up and down directions', () => {
-  const [baseMyline] = catalogueSearch('MYLINE', 'standard');
-  const enriched = {
-    ...baseMyline,
-    specifications: {
-      designer: 'Adele Martelli',
-      form: 'Подвесное кольцо',
-      materials: [
-        { part: 'Кольцо', material: 'Латунь' },
-        { part: 'Декоративные ремни', material: 'Кожа' },
-      ],
-      finishes: [
-        { part: 'Кольцо', code: 'O', name: 'Natural Satin Brass' },
-        { part: 'Кольцо', code: 'OB', name: 'Burnished Hand-Brushed Brass' },
-        { part: 'Декоративные ремни', code: '602', name: 'Brezza Leather · Moro' },
-      ],
-      dimensionsReferTo: 'Латунное кольцо',
-      standardMaxBandLengthMm: 2000,
-      lighting: {
-        sourceType: 'LED strip',
-        sourceVoltageV: 24,
-        supplyVoltageV: [
-          { min: 220, max: 240 },
-          { min: 110, max: 120 },
-        ],
-        configurations: [
-          {
-            ringWidthMm: 700,
-            direction: 'up' as const,
-            powerW: 45,
-            netWeightKg: 5,
-            outputs: [
-              { cctK: 2700, lumens: 3288 },
-              { cctK: 3000, lumens: 3609 },
-              { cctK: 4000, lumens: 3930 },
-            ],
-          },
-          {
-            ringWidthMm: 700,
-            direction: 'down' as const,
-            powerW: 44,
-            netWeightKg: 5,
-            outputs: [
-              { cctK: 2700, lumens: 3239 },
-              { cctK: 3000, lumens: 3555 },
-              { cctK: 4000, lumens: 3871 },
-            ],
-          },
-          {
-            ringWidthMm: 900,
-            direction: 'up' as const,
-            powerW: 59,
-            netWeightKg: 7,
-            outputs: [
-              { cctK: 2700, lumens: 4354 },
-              { cctK: 3000, lumens: 4779 },
-              { cctK: 4000, lumens: 5204 },
-            ],
-          },
-          {
-            ringWidthMm: 900,
-            direction: 'down' as const,
-            powerW: 59,
-            netWeightKg: 7,
-            outputs: [
-              { cctK: 2700, lumens: 4305 },
-              { cctK: 3000, lumens: 4725 },
-              { cctK: 4000, lumens: 5145 },
-            ],
-          },
-        ],
-      },
-    },
-  };
-
-  const spec900 = extractComparisonSpec(enriched, 'ICBA02');
-  assert.match(spec900.design.value, /Подвесное кольцо/);
-  assert.match(spec900.design.value, /Adele Martelli/);
-  assert.match(spec900.dimensions.hint ?? '', /Латунное кольцо/);
-  assert.match(spec900.dimensions.hint ?? '', /2000 мм/);
-  assert.match(spec900.materials.value, /Кольцо: Латунь/);
-  assert.match(spec900.materials.value, /Декоративные ремни: Кожа/);
-  assert.equal(spec900.finish.confirmed, true);
-  assert.match(spec900.finish.value, /Natural Satin Brass/);
-  assert.match(spec900.finish.value, /Burnished Hand-Brushed Brass/);
-  assert.match(spec900.finish.value, /Brezza Leather/);
-  assert.match(spec900.lighting.value, /LED strip 24 В/);
-  assert.match(spec900.lighting.value, /900 мм вверх: 59 Вт/);
-  assert.match(spec900.lighting.value, /900 мм вниз: 59 Вт/);
-  assert.doesNotMatch(spec900.lighting.value, /700 мм/);
-  assert.match(spec900.lighting.hint ?? '', /не привязаны к конкретному артикулу/);
-});
 

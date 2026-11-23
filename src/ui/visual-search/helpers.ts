@@ -125,32 +125,11 @@ export type ResultSections = {
   documentation: SearchResult[];
 };
 
-export type DocumentedLightingConfig = {
-  ringWidthMm: number;
-  direction: 'up' | 'down';
-  powerW: number;
-  netWeightKg: number;
-  outputs: { cctK: number; lumens: number }[];
-};
-
-export type DocumentedSpecifications = {
-  designer?: string;
-  form?: string;
-  materials?: { part: string; material: string }[];
-  finishes?: { part: string; code: string; name: string }[];
-  dimensionsReferTo?: string;
-  standardMaxBandLengthMm?: number;
-  lighting?: {
-    sourceType: string;
-    sourceVoltageV: number;
-    supplyVoltageV: { min: number; max: number }[];
-    configurations: DocumentedLightingConfig[];
-  };
-};
+export type DocumentedSpecifications = NonNullable<SearchResult['specifications']>;
+export type DocumentedLightingConfig = NonNullable<DocumentedSpecifications['lighting']>['configurations'][number];
 
 export function readResultSpecifications(result: SearchResult): DocumentedSpecifications | undefined {
-  const candidate = (result as SearchResult & { specifications?: DocumentedSpecifications }).specifications;
-  return candidate && typeof candidate === 'object' ? candidate : undefined;
+  return result.specifications;
 }
 
 export function filterLightingConfigurations(

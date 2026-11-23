@@ -11,7 +11,13 @@ import {
   LayersIcon,
   SearchIcon,
 } from '../icons';
-import { categoryMeta, extractDisplayHost, productKindLabel } from './helpers';
+import {
+  categoryMeta,
+  extractDisplayHost,
+  filterLightingConfigurations,
+  formatLightDirection,
+  productKindLabel,
+} from './helpers';
 import { LuminaireVisualPlate } from './LuminaireVisualPlate';
 
 type ResultCardProps = {
@@ -48,6 +54,8 @@ export function ResultCard({
   const host = extractDisplayHost(result.source);
   const variants = result.variants ?? [];
   const activeVariant = variants.find(item => item.sku === selectedSku);
+  const specs = result.specifications;
+  const matchingLighting = filterLightingConfigurations(specs, activeVariant?.widthMm);
 
   return (
     <article
@@ -66,6 +74,12 @@ export function ResultCard({
                 <span>{kind}</span>
               </>
             )}
+            {specs?.designer && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{specs.designer}</span>
+              </>
+            )}
           </div>
           <h3 className="vs-card-title">{result.name}</h3>
           <p className="vs-card-honest">
@@ -81,7 +95,9 @@ export function ResultCard({
         {variants.length > 0 && (
           <div className="vs-variant-box">
             <div className="vs-variant-head">
-              <span className="vs-variant-label">Артикул и габариты (техпаспорт)</span>
+              <span className="vs-variant-label">
+                Артикул и габариты{specs?.dimensionsReferTo ? ` · ${specs.dimensionsReferTo}` : ' (техпаспорт)'}
+              </span>
               {activeVariant && (
                 <span className="lf-badge lf-badge--documentation mono">
                   {activeVariant.widthMm} × {activeVariant.depthMm} × {activeVariant.heightMm} мм
@@ -108,7 +124,58 @@ export function ResultCard({
                 );
               })}
             </div>
+            {specs?.standardMaxBandLengthMm && (
+              <span className="vs-variant-note">
+                Макс. стандартная длина декоративного ремня: {specs.standardMaxBandLengthMm} мм
+              </span>
+            )}
           </div>
+        )}
+
+        {/* Documented specifications from manufacturer sheet (PR #11 contract) */}
+        {specs && (
+          <dl className="vs-card-spec-grid">
+            {specs.materials && specs.materials.length > 0 && (
+              <div className="vs-card-spec-row">
+                <dt>Материалы</dt>
+                <dd>{specs.materials.map(item => `${item.part}: ${item.material}`).join(' · ')}</dd>
+              </div>
+            )}
+            {specs.finishes && specs.finishes.length > 0 && (
+              <div className="vs-card-spec-row">
+                <dt>Отделки</dt>
+                <dd className="vs-finish-tags">
+                  {specs.finishes.map(item => (
+                    <span key={`${item.part}-${item.code}`} className="vs-finish-tag">
+                      <strong className="mono">{item.code}</strong> {item.name}
+                    </span>
+                  ))}
+                </dd>
+              </div>
+            )}
+            {specs.lighting && matchingLighting.length > 0 && (
+              <div className="vs-card-spec-row">
+                <dt>
+                  Свет ({specs.lighting.sourceType} {specs.lighting.sourceVoltageV} В)
+                </dt>
+                <dd className="vs-light-lines">
+                  {matchingLighting.map(cfg => {
+                    const lmMin = Math.min(...cfg.outputs.map(o => o.lumens));
+                    const lmMax = Math.max(...cfg.outputs.map(o => o.lumens));
+                    return (
+                      <span key={`${cfg.ringWidthMm}-${cfg.direction}`} className="mono">
+                        {cfg.ringWidthMm} мм {formatLightDirection(cfg.direction)}: {cfg.powerW} Вт ·{' '}
+                        {lmMin}–{lmMax} Лм · {cfg.netWeightKg} кг
+                      </span>
+                    );
+                  })}
+                  <small className="vs-light-note">
+                    Направление и мощность не привязаны к конкретному артикулу — уточнить при заказе
+                  </small>
+                </dd>
+              </div>
+            )}
+          </dl>
         )}
 
         {/* Confirmed specs & links strip */}
