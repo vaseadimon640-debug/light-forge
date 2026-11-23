@@ -9,12 +9,19 @@ import {
   type DimensionKey,
   type Material,
   type Measurement,
+  type Photo,
   type ProductType,
   type Project,
   type Unit,
 } from '../../domain/project.ts';
+import { PhotoAnalysisError } from '../../photo-analysis/client.ts';
+import type { PhotoAnalysisResponse } from '../../photo-analysis/contract.ts';
 import type { ProjectSnapshot } from '../../storage/projects.ts';
 import { mmToDisplay, unitLabels } from './helpers.ts';
+
+export type { PhotoAnalysisResponse };
+export type PhotoAnalysisMode = PhotoAnalysisResponse['mode'];
+export type AnalyzedPhoto = PhotoAnalysisResponse['photos'][number];
 
 export type PhotoSuggestionConfidence = 'high' | 'medium' | 'low';
 export type PhotoSuggestionStatus = 'pending' | 'accepted' | 'edited' | 'skipped';
@@ -65,6 +72,7 @@ export type PhotoSuggestion = {
   confidence: PhotoSuggestionConfidence;
   confidenceScore?: number;
   note?: string;
+  source?: 'estimated';
   payload: PhotoSuggestionPayload;
   status: PhotoSuggestionStatus;
   appliedSummary?: string;
@@ -87,8 +95,7 @@ export type PhotoSuggestionEditOverride =
   | { kind: 'mounting'; valueMm: number; source: Measurement['source'] };
 
 /**
- * Adapter seam for the upcoming Codex photo-analysis API contract.
- * UI stays fully decoupled from transport details until Codex publishes the schema & endpoint.
+ * Adapter seam matching the Codex photo-analysis API contract v1.
  */
 export type PhotoAnalysisRequest = {
   snapshot: ProjectSnapshot;
@@ -96,16 +103,124 @@ export type PhotoAnalysisRequest = {
   signal?: AbortSignal;
 };
 
-export type PhotoAnalysisResponse = {
-  suggestions: Omit<PhotoSuggestion, 'status' | 'appliedSummary'>[];
-  summary?: string;
-  warnings?: string[];
-};
-
 export type PhotoAnalysisProvider = {
   label: string;
   analyze: (request: PhotoAnalysisRequest) => Promise<PhotoAnalysisResponse>;
 };
+
+export type PhotoAnalysisUiError = {
+  status: number;
+  code: string;
+  message: string;
+  retryable: boolean;
+};
+
+export function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  return 'name' in error && (error as { name?: unknown }).name === 'AbortError';
+}
+
+export function formatPhotoAnalysisError(error: unknown): PhotoAnalysisUiError {
+  if (error instanceof PhotoAnalysisError) {
+    switch (error.code) {
+      case 'invalid_photo':
+        return {
+          status: error.status,
+          code: error.code,
+          message:
+            'Один из выбранных файлов повреждён, не соответствует формату/размеру или превышает лимит пикселей (до 60 Мп на фото, до 120 Мп суммарно). Проверьте файлы или продолжите ручной ввод.',
+          retryable: false,
+        };
+      case 'invalid_photo_list':
+        return {
+          status: error.status,
+          code: error.code,
+          message:
+            'Некорректный список выбранных фотографий (нужно от 1 до 8 уникальных фото, суммарно до 32 МиБ).',
+          retryable: false,
+        };
+      case 'request_too_large':
+        return {
+          status: error.status,
+          code: error.code,
+          message:
+            'Выбранные фотографии превышают допустимый объём запроса (32 МиБ). Снимите часть фотографий и повторите попытку.',
+          retryable: false,
+        };
+      case 'unsupported_media_type':
+        return {
+          status: error.status,
+          code: error.code,
+          message: 'Сервер отклонил формат запроса анализа фото (ожидается multipart/form-data).',
+          retryable: false,
+        };
+      case 'cross_site_request':
+        return {
+          status: error.status,
+          code: error.code,
+          message: 'Запрос анализа фото с внешнего источника запрещён политикой безопасности.',
+          retryable: false,
+        };
+      case 'invalid_body':
+        return {
+          status: error.status,
+          code: error.code,
+          message: 'Сервер не смог прочитать список выбранных фото в запросе.',
+          retryable: true,
+        };
+      case 'engine_error':
+      case 'invalid_engine_response':
+      case 'invalid_response':
+        return {
+          status: error.status,
+          code: error.code,
+          message:
+            'Сервис анализа фото вернул некорректный ответ или временно недоступен. Повторите попытку или заполните форму вручную.',
+          retryable: true,
+        };
+      default:
+        return {
+          status: error.status,
+          code: error.code,
+          message: `Ошибка сервиса анализа фото (${error.status}: ${error.code}). Повторите попытку или продолжите ручной ввод.`,
+          retryable: error.status >= 500 || error.status === 0,
+        };
+    }
+  }
+
+  return {
+    status: 0,
+    code: 'network_error',
+    message:
+      'Не удалось связаться с сервисом анализа фото. Проверьте подключение и повторите попытку — ручной ввод остаётся доступным.',
+    retryable: true,
+  };
+}
+
+export function syncSelectedPhotoIds(
+  currentSelected: string[],
+  projectPhotos: Photo[],
+  newlyAddedIds: string[] = [],
+): string[] {
+  const existingIds = new Set(projectPhotos.map(photo => photo.id));
+  const selectedSet = new Set(currentSelected.filter(id => existingIds.has(id)));
+  for (const id of newlyAddedIds) {
+    if (existingIds.has(id)) selectedSet.add(id);
+  }
+  return projectPhotos.filter(photo => selectedSet.has(photo.id)).map(photo => photo.id);
+}
+
+export function formatMimeLabel(type: Photo['type']): string {
+  if (type === 'image/jpeg') return 'JPEG';
+  if (type === 'image/png') return 'PNG';
+  return 'WebP';
+}
+
+export function formatMegapixels(widthPx: number, heightPx: number): string {
+  const mp = (widthPx * heightPx) / 1_000_000;
+  if (mp < 0.1) return `${(widthPx * heightPx).toLocaleString('ru-RU')} пикс.`;
+  return `${mp.toFixed(mp >= 10 ? 1 : 2)} Мп`;
+}
 
 export type CurrentFieldSummary = {
   categoryLabel: string;

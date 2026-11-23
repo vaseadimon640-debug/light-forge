@@ -18,11 +18,17 @@ import {
   snapshotFingerprint,
   validateProject,
 } from '../src/ui/quick-rfq/helpers.ts';
+import { PhotoAnalysisError } from '../src/photo-analysis/client.ts';
 import {
   applyEmptySuggestions,
   applyPhotoSuggestion,
   createPreviewDemoSuggestions,
+  formatMegapixels,
+  formatMimeLabel,
+  formatPhotoAnalysisError,
   getCurrentFieldSummary,
+  isAbortError,
+  syncSelectedPhotoIds,
   type PhotoSuggestion,
 } from '../src/ui/quick-rfq/photoAnalysis.ts';
 
@@ -224,4 +230,46 @@ test('photo analysis suggestions preserve estimated provenance, protect manual v
     assert.equal(mountRes.project.mounting.ceilingFromFloorMm?.source, 'estimated');
     assert.match(mountRes.appliedSummary, /320 см/);
   }
+});
+
+test('photo analysis selection sync, abort detection, and structured error formatting match contract v1', () => {
+  const photos = [
+    { id: 'p1', name: 'main.png', type: 'image/png' as const, size: 1200 },
+    { id: 'p2', name: 'detail.jpg', type: 'image/jpeg' as const, size: 2400 },
+    { id: 'p3', name: 'angle.webp', type: 'image/webp' as const, size: 3600 },
+  ];
+
+  // Preserves existing selection, drops deleted IDs, auto-selects newly uploaded IDs in project order
+  assert.deepEqual(syncSelectedPhotoIds(['p2', 'deleted'], photos, ['p3']), ['p2', 'p3']);
+  assert.deepEqual(syncSelectedPhotoIds([], photos, ['p1']), ['p1']);
+
+  assert.equal(formatMimeLabel('image/png'), 'PNG');
+  assert.equal(formatMimeLabel('image/jpeg'), 'JPEG');
+  assert.equal(formatMimeLabel('image/webp'), 'WebP');
+  assert.match(formatMegapixels(1920, 1080), /2\.07 Мп/);
+  assert.match(formatMegapixels(360, 240), /пикс\./);
+
+  // AbortError detection
+  assert.equal(isAbortError(new DOMException('The operation was aborted.', 'AbortError')), true);
+  assert.equal(isAbortError(new Error('network down')), false);
+
+  // Contract error classification
+  const invalidPhoto = formatPhotoAnalysisError(new PhotoAnalysisError(422, 'invalid_photo'));
+  assert.equal(invalidPhoto.status, 422);
+  assert.equal(invalidPhoto.code, 'invalid_photo');
+  assert.equal(invalidPhoto.retryable, false);
+  assert.match(invalidPhoto.message, /60 Мп/);
+
+  const tooLarge = formatPhotoAnalysisError(new PhotoAnalysisError(413, 'request_too_large'));
+  assert.equal(tooLarge.retryable, false);
+  assert.match(tooLarge.message, /32 МиБ/);
+
+  const engineErr = formatPhotoAnalysisError(new PhotoAnalysisError(502, 'engine_error'));
+  assert.equal(engineErr.retryable, true);
+  assert.equal(engineErr.code, 'engine_error');
+
+  const netErr = formatPhotoAnalysisError(new TypeError('Failed to fetch'));
+  assert.equal(netErr.status, 0);
+  assert.equal(netErr.code, 'network_error');
+  assert.equal(netErr.retryable, true);
 });

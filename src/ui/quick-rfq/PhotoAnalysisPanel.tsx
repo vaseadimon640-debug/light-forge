@@ -18,6 +18,7 @@ import type { ProjectSnapshot } from '@/storage/projects';
 import {
   AlertIcon,
   CheckIcon,
+  CloseIcon,
   EditIcon,
   RefreshIcon,
   SkipIcon,
@@ -26,6 +27,7 @@ import {
 } from '../icons';
 import {
   displayToMm,
+  formatBytes,
   mmToDisplay,
   orderedPhotos,
   parsePlainNumber,
@@ -33,10 +35,15 @@ import {
 } from './helpers';
 import {
   confidenceLabels,
+  formatMegapixels,
+  formatMimeLabel,
   formatSuggestionProposal,
   getCurrentFieldSummary,
   lightMetricLabels,
+  type AnalyzedPhoto,
+  type PhotoAnalysisMode,
   type PhotoAnalysisProvider,
+  type PhotoAnalysisUiError,
   type PhotoSuggestion,
   type PhotoSuggestionEditOverride,
 } from './photoAnalysis';
@@ -54,14 +61,23 @@ type PhotoAnalysisPanelProps = {
   photoUrls: Record<string, string>;
   unit: Unit;
   provider?: PhotoAnalysisProvider | null;
+  selectedPhotoIds: string[];
+  onTogglePhotoSelection: (photoId: string) => void;
+  onSelectAllPhotos: () => void;
+  onClearPhotoSelection: () => void;
   status: PhotoAnalysisStatus;
-  errorMessage: string | null;
+  mode: PhotoAnalysisMode | null;
+  analyzedPhotos: AnalyzedPhoto[];
+  selectionStale: boolean;
+  cancelledNotice: string | null;
+  error: PhotoAnalysisUiError | null;
   summaryNote?: string | null;
   warnings?: string[];
   suggestions: PhotoSuggestion[];
   isPreviewDemo: boolean;
   stepSkipped: boolean;
   onRunAnalysis: () => void;
+  onCancelAnalysis: () => void;
   onLoadPreviewDemo: () => void;
   onClearSuggestions: () => void;
   onSkipStep: () => void;
@@ -100,7 +116,6 @@ function PhotoSuggestionCard({
   const [confirmingOverwrite, setConfirmingOverwrite] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
 
-  // Local inline edit states (initialized cleanly on entering edit mode)
   const [editKind, setEditKind] = useState<ProductType>('pendant');
   const [editNumber, setEditNumber] = useState<string>('');
   const [editSource, setEditSource] = useState<Measurement['source']>('estimated');
@@ -343,14 +358,11 @@ function PhotoSuggestionCard({
         </div>
       )}
 
-      {/* Explicit overwrite confirmation when replacing an existing manual value */}
       {confirmingOverwrite && suggestion.status === 'pending' && !editing && (
         <div className="lf-alert lf-alert--warning" role="alert">
           <div className="lf-alert-content">
             <AlertIcon size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-            <span>
-              Заменить текущее значение «{summary.currentLabel}» на оценку по фото?
-            </span>
+            <span>Заменить текущее значение «{summary.currentLabel}» на оценку по фото?</span>
           </div>
           <div className="lf-suggestion-actions-inline">
             <button
@@ -373,7 +385,6 @@ function PhotoSuggestionCard({
         </div>
       )}
 
-      {/* Inline Editor ("Изменить") */}
       {editing && (
         <div className="lf-suggestion-editor" aria-label="Редактирование подсказки перед применением">
           {suggestion.payload.kind === 'productKind' && (
@@ -556,7 +567,6 @@ function PhotoSuggestionCard({
         </div>
       )}
 
-      {/* Action Footer */}
       {!editing && !confirmingOverwrite && (
         <div className="lf-suggestion-footer">
           {suggestion.status === 'pending' ? (
@@ -631,14 +641,23 @@ export function PhotoAnalysisPanel({
   photoUrls,
   unit,
   provider = null,
+  selectedPhotoIds,
+  onTogglePhotoSelection,
+  onSelectAllPhotos,
+  onClearPhotoSelection,
   status,
-  errorMessage,
+  mode,
+  analyzedPhotos,
+  selectionStale,
+  cancelledNotice,
+  error,
   summaryNote,
   warnings = [],
   suggestions,
   isPreviewDemo,
   stepSkipped,
   onRunAnalysis,
+  onCancelAnalysis,
   onLoadPreviewDemo,
   onClearSuggestions,
   onSkipStep,
@@ -652,6 +671,9 @@ export function PhotoAnalysisPanel({
   const [filter, setFilter] = useState<FilterMode>('all');
 
   const photos = orderedPhotos(snapshot.project);
+  const selectedSet = useMemo(() => new Set(selectedPhotoIds), [selectedPhotoIds]);
+  const selectedCount = photos.filter(photo => selectedSet.has(photo.id)).length;
+
   const counts = useMemo(() => {
     let pending = 0;
     let accepted = 0;
@@ -680,6 +702,13 @@ export function PhotoAnalysisPanel({
     if (filter === 'resolved') return suggestions.filter(item => item.status !== 'pending');
     return suggestions;
   }, [filter, suggestions]);
+
+  const modeBadge = useMemo(() => {
+    if (!provider) return { text: 'Ожидает контракт API', cls: 'lf-badge--unknown' };
+    if (mode === 'metadata_only') return { text: 'Режим: метаданные (v1)', cls: 'lf-badge--user' };
+    if (mode === 'visual_analysis') return { text: 'Визуальный анализ (v1)', cls: 'lf-badge--documentation' };
+    return { text: `${provider.label} · API v1`, cls: 'lf-badge--documentation' };
+  }, [mode, provider]);
 
   if (stepSkipped) {
     return (
@@ -724,17 +753,14 @@ export function PhotoAnalysisPanel({
             Анализ фото и разбор подсказок
           </h2>
           <p className="lf-card-desc">
-            Подсказки по фото всегда помечаются как «Оценка». Введённые вручную данные не изменяются без
-            вашего явного подтверждения.
+            В анализ отправляются только выбранные фото без изменения оригиналов. Подсказки всегда
+            помечаются как «Оценка» и не перезаписывают ручной ввод без вашего согласия.
           </p>
         </div>
 
         <div className="lf-analysis-head-actions">
-          <span
-            id="lf-photo-analysis-contract-badge"
-            className={`lf-badge ${provider ? 'lf-badge--documentation' : 'lf-badge--unknown'}`}
-          >
-            {provider ? provider.label : 'Ожидает контракт API'}
+          <span id="lf-photo-analysis-contract-badge" className={`lf-badge ${modeBadge.cls}`}>
+            {modeBadge.text}
           </span>
           <button
             id="lf-photo-analysis-skip-step-btn"
@@ -753,30 +779,71 @@ export function PhotoAnalysisPanel({
             <div className="lf-analysis-empty-text">
               <strong>Сначала загрузите фото на шаге 1</strong>
               <span className="lf-field-hint">
-                После загрузки фотографий здесь появятся управление анализом и список подсказок с кнопками
-                «Принять», «Изменить» и «Пропустить». Ручное заполнение формы ниже доступно сразу.
+                После загрузки фотографий вы сможете выбрать нужные снимки для проверки и разбора подсказок.
+                Ручное заполнение формы ниже доступно сразу.
               </span>
             </div>
             <span className="lf-badge lf-badge--unknown">0 фото для анализа</span>
           </div>
         ) : (
           <>
-            {/* Attached photos summary + action toolbar */}
-            <div className="lf-analysis-toolbar">
-              <div className="lf-analysis-photos-strip">
-                <div className="lf-analysis-thumbs" aria-label="Фотографии для анализа">
-                  {photos.slice(0, 4).map((photo, idx) => {
-                    const url = photoUrls[photo.id];
-                    const isPrimary = photo.id === snapshot.project.primaryPhotoId || idx === 0;
-                    return (
-                      <span
-                        key={photo.id}
-                        className={`lf-analysis-mini-thumb${isPrimary ? ' lf-analysis-mini-thumb--primary' : ''}`}
-                        title={isPrimary ? `Главное фото: ${photo.name}` : photo.name}
-                      >
+            {/* Interactive photo selector */}
+            <div className="lf-analysis-selector">
+              <div className="lf-analysis-selector-head">
+                <div className="lf-analysis-photos-meta">
+                  <strong className="num">
+                    Выбрано для анализа: {selectedCount} из {photos.length} фото
+                  </strong>
+                  <span className="lf-field-hint">
+                    Передаются только отмеченные снимки · изменение выбора во время загрузки отменяет текущий запрос
+                  </span>
+                </div>
+                {photos.length > 1 && (
+                  <div className="lf-suggestion-actions-inline">
+                    <button
+                      id="lf-photo-analysis-select-all-btn"
+                      type="button"
+                      className="lf-btn lf-btn--subtle lf-btn--sm"
+                      disabled={selectedCount === photos.length}
+                      onClick={onSelectAllPhotos}
+                    >
+                      Выбрать все
+                    </button>
+                    <button
+                      id="lf-photo-analysis-clear-sel-btn"
+                      type="button"
+                      className="lf-btn lf-btn--subtle lf-btn--sm"
+                      disabled={selectedCount === 0}
+                      onClick={onClearPhotoSelection}
+                    >
+                      Снять выбор
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="lf-analysis-picker-grid" role="group" aria-label="Выбор фотографий для анализа">
+                {photos.map((photo, idx) => {
+                  const selected = selectedSet.has(photo.id);
+                  const url = photoUrls[photo.id];
+                  const isPrimary = photo.id === snapshot.project.primaryPhotoId || idx === 0;
+                  return (
+                    <button
+                      key={photo.id}
+                      id={`lf-analysis-photo-pick-${photo.id}`}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={selected}
+                      className={`lf-analysis-pick-chip${selected ? ' lf-analysis-pick-chip--selected' : ''}`}
+                      onClick={() => onTogglePhotoSelection(photo.id)}
+                    >
+                      <span className="lf-analysis-pick-check" aria-hidden="true">
+                        {selected && <CheckIcon size={11} />}
+                      </span>
+                      <span className="lf-analysis-mini-thumb">
                         {url ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={url} alt={photo.name} />
+                          <img src={url} alt="" />
                         ) : null}
                         {isPrimary && (
                           <span className="lf-analysis-mini-star" aria-hidden="true">
@@ -784,78 +851,217 @@ export function PhotoAnalysisPanel({
                           </span>
                         )}
                       </span>
-                    );
-                  })}
-                  {photos.length > 4 && (
-                    <span className="lf-analysis-mini-more num">+{photos.length - 4}</span>
-                  )}
-                </div>
-
-                <div className="lf-analysis-photos-meta">
-                  <strong className="num">Готово к анализу: {photos.length} фото</strong>
-                  <span className="lf-field-hint">
-                    Оригиналы сохраняются без сжатия · главное фото: {photos[0].name}
-                  </span>
-                </div>
+                      <span className="lf-analysis-pick-info">
+                        <span className="lf-analysis-pick-name" title={photo.name}>
+                          {photo.name}
+                        </span>
+                        <span className="lf-field-hint num">
+                          {formatMimeLabel(photo.type)} · {formatBytes(photo.size)}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
 
-              <div className="lf-analysis-toolbar-btns">
-                <button
-                  id="lf-photo-analysis-run-btn"
-                  type="button"
-                  className="lf-btn lf-btn--primary lf-btn--sm"
-                  disabled={!provider || status === 'loading'}
-                  title={
-                    provider
-                      ? 'Запустить анализ загруженных фотографий'
-                      : 'Серверный анализ будет подключён после публикации контракта API от Codex'
-                  }
-                  onClick={onRunAnalysis}
-                >
-                  {status === 'loading' ? (
-                    <RefreshIcon size={13} className="lf-spin" />
-                  ) : (
-                    <SparkIcon size={13} />
+              {/* Action buttons row */}
+              <div className="lf-analysis-toolbar-row">
+                <div className="lf-analysis-toolbar-btns">
+                  <button
+                    id="lf-photo-analysis-run-btn"
+                    type="button"
+                    className="lf-btn lf-btn--primary lf-btn--sm"
+                    disabled={!provider || selectedCount === 0 || status === 'loading'}
+                    title={
+                      !provider
+                        ? 'Подключение анализа будет активировано после публикации контракта API'
+                        : selectedCount === 0
+                          ? 'Выберите хотя бы одно фото'
+                          : 'Отправить выбранные фото в API анализа'
+                    }
+                    onClick={onRunAnalysis}
+                  >
+                    {status === 'loading' ? (
+                      <RefreshIcon size={13} className="lf-spin" />
+                    ) : (
+                      <SparkIcon size={13} />
+                    )}
+                    {status === 'loading'
+                      ? `Анализ (${selectedCount})...`
+                      : `Анализировать фото (${selectedCount})`}
+                  </button>
+
+                  {status === 'loading' && (
+                    <button
+                      id="lf-photo-analysis-cancel-btn"
+                      type="button"
+                      className="lf-btn lf-btn--danger lf-btn--sm"
+                      onClick={onCancelAnalysis}
+                    >
+                      <CloseIcon size={13} /> Отменить
+                    </button>
                   )}
-                  {status === 'loading' ? 'Анализ фото...' : 'Анализировать фото'}
-                </button>
 
-                {!provider && !isPreviewDemo && (
-                  <button
-                    id="lf-photo-analysis-demo-btn"
-                    type="button"
-                    className="lf-btn lf-btn--brass lf-btn--sm"
-                    onClick={onLoadPreviewDemo}
-                  >
-                    Просмотр подсказок (демо UI)
-                  </button>
-                )}
+                  {!isPreviewDemo && status !== 'loading' && (mode === 'metadata_only' || !provider) && (
+                    <button
+                      id="lf-photo-analysis-demo-btn"
+                      type="button"
+                      className="lf-btn lf-btn--brass lf-btn--sm"
+                      onClick={onLoadPreviewDemo}
+                    >
+                      Просмотр подсказок (демо UI)
+                    </button>
+                  )}
 
-                {isPreviewDemo && (
-                  <button
-                    id="lf-photo-analysis-clear-btn"
-                    type="button"
-                    className="lf-btn lf-btn--sm"
-                    onClick={onClearSuggestions}
-                  >
-                    Скрыть демо
-                  </button>
+                  {isPreviewDemo && (
+                    <button
+                      id="lf-photo-analysis-clear-btn"
+                      type="button"
+                      className="lf-btn lf-btn--sm"
+                      onClick={onClearSuggestions}
+                    >
+                      Скрыть демо
+                    </button>
+                  )}
+                </div>
+
+                {selectionStale && status === 'ready' && !isPreviewDemo && (
+                  <span className="lf-badge lf-badge--estimated">
+                    Выбор фото изменён — запустите анализ снова
+                  </span>
                 )}
               </div>
             </div>
 
-            {/* Honest API pending notice when no backend provider is connected yet */}
-            {!provider && suggestions.length === 0 && (
-              <div className="lf-alert lf-alert--info" role="status">
+            {/* Cancellation notice (clean, non-error feedback) */}
+            {cancelledNotice && status === 'idle' && (
+              <div id="lf-photo-analysis-cancelled-notice" className="lf-alert lf-alert--info" role="status">
                 <div className="lf-alert-content">
-                  <SparkIcon size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-                  <span>
-                    Подключение серверного анализа начнётся после публикации контракта API от Codex.
-                    Внешние AI-сервисы не вызываются. Нажмите «Просмотр подсказок (демо UI)», чтобы
-                    проверить сценарий «Принять / Изменить / Пропустить», или пропустите этот шаг.
-                  </span>
+                  <AlertIcon size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span>{cancelledNotice}</span>
                 </div>
               </div>
+            )}
+
+            {/* Structured error alert */}
+            {status === 'error' && error && (
+              <div id="lf-photo-analysis-error" className="lf-alert lf-alert--danger" role="alert">
+                <div className="lf-alert-content">
+                  <AlertIcon size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span>{error.message}</span>
+                    <span className="lf-field-hint mono" style={{ color: 'inherit', opacity: 0.85 }}>
+                      Код: {error.code}
+                      {error.status > 0 ? ` · HTTP ${error.status}` : ''}
+                    </span>
+                  </div>
+                </div>
+                {provider && selectedCount > 0 && (
+                  <button
+                    id="lf-photo-analysis-retry-btn"
+                    type="button"
+                    className="lf-btn lf-btn--sm"
+                    onClick={onRunAnalysis}
+                  >
+                    <RefreshIcon size={13} /> Повторить
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* metadata_only mode notice + verified pixel metadata */}
+            {status === 'ready' && mode === 'metadata_only' && !isPreviewDemo && (
+              <div className="lf-analysis-metadata-block">
+                <div
+                  id="lf-photo-analysis-metadata-notice"
+                  className="lf-alert lf-alert--info"
+                  role="status"
+                >
+                  <div className="lf-alert-content">
+                    <SparkIcon size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <strong>Распознавание ещё не подключено</strong>
+                      <span>
+                        Сервер проверил формат и размеры растра выбранных файлов. Заполните параметры
+                        вручную ниже — введённые данные и оригиналы фото сохраняются полностью.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {analyzedPhotos.length > 0 && (
+                  <div id="lf-photo-analysis-metadata-list" className="lf-metadata-grid">
+                    {analyzedPhotos.map(photo => {
+                      const thumbUrl = photoUrls[photo.id];
+                      const isPrimary = photo.id === snapshot.project.primaryPhotoId;
+                      return (
+                        <div key={photo.id} className="lf-metadata-card">
+                          <div className="lf-metadata-card-head">
+                            {thumbUrl && (
+                              <span className="lf-analysis-mini-thumb">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={thumbUrl} alt="" />
+                              </span>
+                            )}
+                            <div className="lf-metadata-name-wrap">
+                              <strong className="lf-metadata-name" title={photo.name}>
+                                {photo.name}
+                              </strong>
+                              <span className="lf-field-hint">
+                                {isPrimary ? 'Главное фото · ' : ''}
+                                {formatMimeLabel(photo.type)} ({photo.type})
+                              </span>
+                            </div>
+                          </div>
+                          <div className="lf-metadata-stats">
+                            <div className="lf-metadata-stat">
+                              <span className="lf-suggestion-box-label">Растр (файл)</span>
+                              <span className="lf-metadata-val mono">
+                                {photo.widthPx} × {photo.heightPx} px
+                              </span>
+                            </div>
+                            <div className="lf-metadata-stat">
+                              <span className="lf-suggestion-box-label">Объём / разрешение</span>
+                              <span className="lf-metadata-val num">
+                                {formatBytes(photo.size)} · {formatMegapixels(photo.widthPx, photo.heightPx)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <p className="lf-field-hint" style={{ gridColumn: '1 / -1', margin: 0 }}>
+                      Размеры растра считаны из файла и могут относиться к ориентации до поворота EXIF.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* visual_analysis mode with verified photos strip and empty-suggestions distinction */}
+            {status === 'ready' && mode === 'visual_analysis' && !isPreviewDemo && (
+              <>
+                {analyzedPhotos.length > 0 && (
+                  <div id="lf-photo-analysis-metadata-list" className="lf-metadata-inline-strip">
+                    {analyzedPhotos.map(photo => (
+                      <span key={photo.id} className="lf-badge lf-badge--user mono">
+                        {photo.name}: {photo.widthPx}×{photo.heightPx} px
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {suggestions.length === 0 && (
+                  <div className="lf-alert lf-alert--info" role="status">
+                    <div className="lf-alert-content">
+                      <SparkIcon size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                      <span>
+                        Подходящих визуальных подсказок по выбранным фото не найдено. Заполните
+                        параметры вручную ниже.
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Explicit demo fixture disclaimer */}
@@ -864,24 +1070,10 @@ export function PhotoAnalysisPanel({
                 <div className="lf-alert-content">
                   <AlertIcon size={15} style={{ flexShrink: 0, marginTop: 1 }} />
                   <span>
-                    <strong>Демо-подсказки интерфейса</strong> · Не являются реальным анализом изображения.
-                    Подключение анализа активируется после публикации контракта API от Codex.
+                    <strong>Демо-подсказки интерфейса</strong> · Это локальный предпросмотр карточек
+                    «Принять / Изменить / Пропустить», а не результат распознавания изображения.
                   </span>
                 </div>
-              </div>
-            )}
-
-            {status === 'error' && errorMessage && (
-              <div className="lf-alert lf-alert--danger" role="alert">
-                <div className="lf-alert-content">
-                  <AlertIcon size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-                  <span>{errorMessage}</span>
-                </div>
-                {provider && (
-                  <button type="button" className="lf-btn lf-btn--sm" onClick={onRunAnalysis}>
-                    <RefreshIcon size={13} /> Повторить
-                  </button>
-                )}
               </div>
             )}
 
@@ -909,21 +1101,13 @@ export function PhotoAnalysisPanel({
               <div className="lf-analysis-review">
                 <div className="lf-analysis-summary-bar">
                   <div className="lf-analysis-counts">
-                    <span className="lf-badge lf-badge--estimated num">
-                      Ожидают: {counts.pending}
-                    </span>
-                    <span className="lf-badge lf-badge--documentation num">
-                      Принято: {counts.accepted}
-                    </span>
+                    <span className="lf-badge lf-badge--estimated num">Ожидают: {counts.pending}</span>
+                    <span className="lf-badge lf-badge--documentation num">Принято: {counts.accepted}</span>
                     {counts.edited > 0 && (
-                      <span className="lf-badge lf-badge--accent num">
-                        Изменено: {counts.edited}
-                      </span>
+                      <span className="lf-badge lf-badge--accent num">Изменено: {counts.edited}</span>
                     )}
                     {counts.skipped > 0 && (
-                      <span className="lf-badge lf-badge--unknown num">
-                        Пропущено: {counts.skipped}
-                      </span>
+                      <span className="lf-badge lf-badge--unknown num">Пропущено: {counts.skipped}</span>
                     )}
                   </div>
 
