@@ -506,6 +506,9 @@ export function QuickRfqWorkspace() {
         </div>
 
         <div className="lf-topbar-actions">
+          <a href="/geometry" target="_blank" rel="noopener" className="lf-btn lf-btn--sm" title="Открыть 3D-конструктор в новой вкладке">
+            3D-конструктор
+          </a>
           {/* Global Display Unit Switcher (storage stays canonical in mm) */}
           <div className="lf-segment" role="group" aria-label="Единицы отображения размеров">
             {units.map(u => (
