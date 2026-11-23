@@ -39,6 +39,34 @@ test('known geometry fills absent dimensions; mismatched sizes and mounting leve
   assert.throws(() => buildQuickRfq({ project, composition }), RfqConflict);
 });
 
+test('RFQ rejects conflicting X and Y coordinates for a linked mounting placement', async () => {
+  const project = createMyline();
+  const placement = project.mounting.placements[0];
+  placement.xMm = 0;
+  placement.yMm = -125;
+  const composition = createMylineComposition(project);
+  const { xy } = composition.elements[0].position;
+  const input = { project, composition };
+
+  assert.doesNotThrow(() => buildQuickRfq(input));
+  xy.x = { value: 0.0005, source: 'user' };
+  assert.doesNotThrow(() => buildQuickRfq(input));
+  xy.x.value = 25;
+  const pdf = await POST(post(input, '?format=pdf'));
+  assert.equal(pdf.status, 422);
+  assert.deepEqual(await pdf.json(), {
+    error: 'project_geometry_conflict',
+    message: `Project and composition disagree on placement ${placement.id} (X coordinate).`,
+  });
+
+  delete xy.x;
+  assert.doesNotThrow(() => buildQuickRfq(input));
+  xy.y = { value: 125, source: 'estimated' };
+  const text = await POST(post(input));
+  assert.equal(text.status, 422);
+  assert.match((await text.json()).message, /Y coordinate/);
+});
+
 function linkedEngineeringExample() {
   const project = newProject();
   const composition = createGeometryExample();
