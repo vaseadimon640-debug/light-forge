@@ -223,6 +223,11 @@ export function buildQuickRfq(input: unknown): QuickRfq {
       if (bound && (bound.productComponentId !== placement.componentId ||
         (level && level.valueMm !== null && placement.lowestAboveTabletopMm && !sameValue(level.valueMm, placement.lowestAboveTabletopMm.value))))
         throw new RfqConflict(`Project and composition disagree on placement ${placement.id}.`);
+      for (const [axis, specified] of [['x', placement.xMm], ['y', placement.yMm]] as const) {
+        const calculated = bound?.origin[axis].valueMm;
+        if (specified !== undefined && calculated != null && !sameValue(specified, calculated))
+          throw new RfqConflict(`Project and composition disagree on placement ${placement.id} (${axis.toUpperCase()} coordinate).`);
+      }
       rows.push([
         pair(`${index + 1}. ${part.name} · lowest point above tabletop`, `${index + 1}. ${part.name} · 灯具最低点距桌面`),
         level && level.valueMm !== null
