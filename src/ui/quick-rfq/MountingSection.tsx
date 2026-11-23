@@ -72,7 +72,7 @@ export function MountingSection({
         onClick={onToggleOpen}
       >
         <div className="lf-card-title-wrap">
-          <span className="lf-card-eyebrow">Шаг 4 · Дополнительно</span>
+          <span className="lf-card-eyebrow">Шаг 5 · Дополнительно</span>
           <h2 id="mounting-heading" className="lf-card-title">
             Монтажные уровни и расстановка
             {mountingIssues.length > 0 && (

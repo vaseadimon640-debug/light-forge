@@ -94,7 +94,7 @@ export function ComponentEditor({
     <section className="lf-card" aria-labelledby="components-heading">
       <div className="lf-card-header">
         <div className="lf-card-title-wrap">
-          <span className="lf-card-eyebrow">Шаг 3 · Изделие и спецификация</span>
+          <span className="lf-card-eyebrow">Шаг 4 · Изделие и спецификация</span>
           <h2 id="components-heading" className="lf-card-title">
             Корпуса, размеры, свет и материалы
             {componentIssues.length > 0 && (
