@@ -121,6 +121,7 @@ export function mergeSearchResults(
 export type ResultSections = {
   originals: SearchResult[];
   exactMatches: SearchResult[];
+  unverified: SearchResult[];
   similarModels: SearchResult[];
   documentation: SearchResult[];
 };
@@ -149,14 +150,17 @@ export function formatLightDirection(direction: 'up' | 'down'): string {
 export function groupSearchResults(results: SearchResult[]): ResultSections {
   const originals: SearchResult[] = [];
   const exactMatches: SearchResult[] = [];
+  const unverified: SearchResult[] = [];
   const similarModels: SearchResult[] = [];
   const documentation: SearchResult[] = [];
 
   for (const item of results) {
     if (item.category === 'verified_original') {
       originals.push(item);
-    } else if (item.category === 'exact_match' || item.category === 'unverified') {
+    } else if (item.category === 'exact_match') {
       exactMatches.push(item);
+    } else if (item.category === 'unverified') {
+      unverified.push(item);
     } else {
       similarModels.push(item);
     }
@@ -171,7 +175,7 @@ export function groupSearchResults(results: SearchResult[]): ResultSections {
     }
   }
 
-  return { originals, exactMatches, similarModels, documentation };
+  return { originals, exactMatches, unverified, similarModels, documentation };
 }
 
 export type ComparisonField = {

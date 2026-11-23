@@ -243,6 +243,13 @@ export function VisualSearch() {
   const hasResultsArea = Boolean(lastResponse || imported.length > 0);
   const geminiWarningText = formatGeminiWarning(lastResponse?.warning);
 
+  function resetPhotoSearch() {
+    searchAbortRef.current?.abort();
+    setLoading(false);
+    setAllowGemini(false);
+    setLastResponse(undefined);
+  }
+
   function choosePhoto(files: FileList | null) {
     const file = files?.[0];
     if (!file) return;
@@ -250,6 +257,7 @@ export function VisualSearch() {
       showNotice('Выберите изображение JPEG, PNG или WebP размером до 12 МБ.');
       return;
     }
+    resetPhotoSearch();
     setPhoto(file);
     setCrop(FULL_CROP);
     setCropActive(false);
@@ -257,6 +265,7 @@ export function VisualSearch() {
   }
 
   function clearPhoto() {
+    resetPhotoSearch();
     setPhoto(undefined);
     setCrop(FULL_CROP);
     setCropActive(false);
@@ -270,9 +279,7 @@ export function VisualSearch() {
   }
 
   const runSearch = useCallback(
-    async (overrideQuery?: string, overrideMode?: SearchInput['mode']) => {
-      const targetQuery = overrideQuery ?? query;
-      const targetMode = overrideMode ?? mode;
+    async (targetQuery = query, targetMode = mode, photoConsent = false) => {
       if (!targetQuery.trim() && !photo) return;
 
       searchAbortRef.current?.abort();
@@ -281,8 +288,9 @@ export function VisualSearch() {
 
       setLoading(true);
       setNotice('');
+      setAllowGemini(false);
       try {
-        const shouldRunGemini = Boolean(gemini?.enabled && allowGemini && photo);
+        const shouldRunGemini = Boolean(gemini?.enabled && photoConsent && photo);
         const input: SearchInput = {
           query: targetQuery,
           mode: targetMode,
@@ -344,12 +352,12 @@ export function VisualSearch() {
         }
       }
     },
-    [allowGemini, crop, gemini?.enabled, mode, photo, query, showNotice],
+    [crop, gemini?.enabled, mode, photo, query, showNotice],
   );
 
   function handleSearchSubmit(event: FormEvent) {
     event.preventDefault();
-    void runSearch();
+    void runSearch(query, mode, allowGemini);
   }
 
   function handleFindSimilar(result: SearchResult) {
@@ -622,7 +630,7 @@ export function VisualSearch() {
                     onChange={event => setAllowGemini(event.target.checked)}
                   />
                   <span>
-                    Отправить оптимизированную копию фото для визуального описания (оригинал остаётся на вашем устройстве)
+                    Отправить копию фото в Gemini для этого поиска (оригинал остаётся на вашем устройстве)
                   </span>
                 </label>
               )}
@@ -839,56 +847,59 @@ export function VisualSearch() {
                 </section>
 
                 {/* 2. ТОЧНЫЕ СОВПАДЕНИЯ */}
-                <section className="vs-section" aria-labelledby="vs-sec-exact">
-                  <div className="vs-section-head">
-                    <div>
-                      <span className="vs-section-eyebrow">02 · Точные совпадения</span>
-                      <h2 id="vs-sec-exact" className="vs-section-title">
-                        Точные совпадения
-                        <span className="vs-count-pill">{sections.exactMatches.length}</span>
-                      </h2>
-                      <p className="vs-section-desc">
-                        Та же модель на разных сайтах и ссылки из Google Lens / ChatGPT для проверки.
-                      </p>
+                {[
+                  { id: 'exact', title: 'Точные совпадения', description: 'Та же модель на разных сайтах.', items: sections.exactMatches },
+                  { id: 'unverified', title: 'Ссылки на проверку', description: 'Источники из Google Lens и ChatGPT требуют сверки.', items: sections.unverified },
+                ].filter(group => group.id === 'exact' || group.items.length > 0).map(group => (
+                  <section key={group.id} className="vs-section" aria-labelledby={`vs-sec-${group.id}`}>
+                    <div className="vs-section-head">
+                      <div>
+                        <h2 id={`vs-sec-${group.id}`} className="vs-section-title">
+                          {group.title}
+                          <span className="vs-count-pill">{group.items.length}</span>
+                        </h2>
+                        <p className="vs-section-desc">
+                          {group.description}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="lf-btn lf-btn--sm"
+                        onClick={() => setLensOpen(true)}
+                      >
+                        <LensIcon size={13} />
+                        <span>Добавить ссылки из Lens</span>
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className="lf-btn lf-btn--sm"
-                      onClick={() => setLensOpen(true)}
-                    >
-                      <LensIcon size={13} />
-                      <span>Добавить ссылки из Lens</span>
-                    </button>
-                  </div>
 
-                  {sections.exactMatches.length > 0 ? (
-                    <div className="vs-cards-grid">
-                      {sections.exactMatches.map(item => (
-                        <ResultCard
-                          key={item.id}
-                          result={item}
-                          selectedSku={selectedVariants[item.id] ?? ''}
-                          isCompared={compareIds.includes(item.id)}
-                          isSaved={isResultSaved(item)}
-                          creatingRfq={creatingRfqId === item.id}
-                          onSelectSku={sku =>
-                            setSelectedVariants(prev => ({ ...prev, [item.id]: sku }))
-                          }
-                          onToggleCompare={handleToggleCompare}
-                          onFindSimilar={handleFindSimilar}
-                          onToggleSave={handleToggleSave}
-                          onReviewChatGpt={target => {
-                            setChatGptFocused(target);
-                            setChatGptOpen(true);
-                          }}
-                          onCreateRfq={target => void handleCreateRfq(target)}
-                        />
+                    {group.items.length > 0 ? (
+                      <div className="vs-cards-grid">
+                        {group.items.map(item => (
+                          <ResultCard
+                            key={item.id}
+                            result={item}
+                            selectedSku={selectedVariants[item.id] ?? ''}
+                            isCompared={compareIds.includes(item.id)}
+                            isSaved={isResultSaved(item)}
+                            creatingRfq={creatingRfqId === item.id}
+                            onSelectSku={sku =>
+                              setSelectedVariants(prev => ({ ...prev, [item.id]: sku }))
+                            }
+                            onToggleCompare={handleToggleCompare}
+                            onFindSimilar={handleFindSimilar}
+                            onToggleSave={handleToggleSave}
+                            onReviewChatGpt={target => {
+                              setChatGptFocused(target);
+                              setChatGptOpen(true);
+                            }}
+                            onCreateRfq={target => void handleCreateRfq(target)}
+                          />
                       ))}
                     </div>
                   ) : (
                     <div className="vs-section-quiet">
                       <span>
-                        Сторонние сайты и ссылки пока не добавлены. Найдите страницу модели через Google Lens или ChatGPT и импортируйте URL.
+                        Точных совпадений пока нет. Найдите страницу модели через Google Lens или ChatGPT и добавьте ссылку на проверку.
                       </span>
                       <button
                         type="button"
@@ -903,6 +914,7 @@ export function VisualSearch() {
                     </div>
                   )}
                 </section>
+                ))}
 
                 {/* 3. ПОХОЖИЕ МОДЕЛИ */}
                 <section className="vs-section" aria-labelledby="vs-sec-similar">

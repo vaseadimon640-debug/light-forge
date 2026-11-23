@@ -14,7 +14,7 @@ import {
   parseLensUrlsInput,
 } from '../src/ui/visual-search/helpers.ts';
 
-test('groupSearchResults distributes real API and imported items into all 4 UI sections', () => {
+test('groupSearchResults keeps unverified imports separate from exact matches', () => {
   const api = catalogueSearch('Emmemobili MYLINE', 'deep');
   const imported = importReviewLinks([
     { url: 'https://showroom.example.invalid/item/myline?utm_source=lens', title: 'Showroom Listing' },
@@ -25,8 +25,9 @@ test('groupSearchResults distributes real API and imported items into all 4 UI s
   assert.equal(sections.originals.length, 1);
   assert.equal(sections.originals[0].id, 'emmemobili-myline');
 
-  assert.equal(sections.exactMatches.length, 1);
-  assert.equal(sections.exactMatches[0].category, 'unverified');
+  assert.equal(sections.exactMatches.length, 0);
+  assert.equal(sections.unverified.length, 1);
+  assert.equal(sections.unverified[0].category, 'unverified');
 
   assert.equal(sections.similarModels.length, 1);
   assert.equal(sections.similarModels[0].id, 'emmemobili-myring-table');
