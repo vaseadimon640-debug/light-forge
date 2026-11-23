@@ -1,0 +1,37 @@
+{
+  "name": "light-forge",
+  "version": "1.0.0",
+  "description": "LIGHT FORGE lighting geometry and supplier RFQ workspace",
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "dev": "next dev --hostname 0.0.0.0 --port 3000",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0 --port 3000",
+    "typecheck": "tsc --noEmit",
+    "openapi": "node --experimental-strip-types scripts/openapi.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "type": "module",
+  "dependencies": {
+    "idb": "8.0.4",
+    "image-size": "2.1.0",
+    "next": "16.4.6",
+    "playwright": "1.65.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "fake-indexeddb": "6.2.8",
+    "typescript": "7.0.2",
+    "yaml": "2.9.1"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

@@ -1,0 +1,29 @@
+# API LIGHT FORGE
+
+Доступны Geometry API v1 и Quick RFQ. Машиночитаемый контракт в [openapi.yaml](openapi.yaml). Генерация из Zod выполняется командой `npm run openapi`.
+
+## Геометрия
+
+`POST /api/geometry/resolve` принимает `Composition` как JSON. Ответ `ResolvedComposition` содержит локальную форму каждого корпуса, мировые координаты известных точек, отметки низа и верха, потолочные основания и отдельные результаты тросов и ремней. Запросы до 1 МиБ. Ответы `400` обозначают ошибку JSON, `413` — превышенный лимит, `415` — другой тип содержимого, `422` — нарушение схемы или связей. При `422` UI привязывает массив `issues` к полям формы.
+
+- `src/geometry/schema.ts` экспортирует типы `Composition`, `Element`, `Canopy`, `Point`, `Shape`.
+- `src/geometry/result.ts` экспортирует типы `ResolvedComposition` и `ResolvedValue`.
+- `src/geometry/resolve.ts` экспортирует `resolveComposition` и функцию перевода осей `engineeringToThree`.
+- `src/geometry/examples.ts` даёт `createMylineComposition()` с фактическими исходными данными и `createGeometryExample()` с тестовыми размерами троса, ремня, кольца, дуги и профиля.
+- `src/storage/compositions.ts` экспортирует `openCompositionStore`, `importComposition`, `exportComposition`. В браузере хранение на уровне origin. При переходе на другой origin переносите композицию JSON-файлом.
+
+Геометрия проверяет уникальные ID, наличие адресуемых креплений, корректные внутренние диаметры, дуги до 180° и выходы внутри основания. Некомплектные данные возвращаются со статусом `unknown`. Для UI полезны `pathLength`, `cutLength`, `formula` и `points`. Формула хранит смещение и коэффициенты `ceilingFromFloorMm` и `tabletopFromFloorMm` отдельно для каждой компоненты отрезка.
+
+`GET /api/health` — состояние локального сервиса.
+
+## Quick RFQ
+
+`POST /api/rfq/quick?format=text&lang=en` принимает JSON `{ project, composition? }`. Возвращает `{ language, text }`. Языки — `en`, `zh` и `en-zh`. Снимок `Project` описан в `src/domain/project.ts`. Опциональная композиция должна ссылаться на тот же проект и согласовываться по размерам, количеству и уровням. При расхождении API возвращает `422 project_geometry_conflict`.
+
+`POST /api/rfq/quick?format=pdf&lang=en-zh` возвращает PDF для предпросмотра и скачивания. Для проекта с фотографиями передавайте `multipart/form-data` с текстовым полем `input` (JSON снимка) и полями `photo:<id>` (оригинальные байты каждого файла из `project.photos`). Проект без фото можно передать JSON. Выбранный файл `primaryPhotoId` отображается первым. Поддерживаются JPEG, PNG и WebP, до 8 файлов, 12 МиБ на файл и 32 МиБ суммарно. Ограничения декодирования — до 60 Мп на фото и 120 Мп суммарно. API возвращает `422 invalid_photo` для отсутствующего или неподдерживаемого файла.
+
+Для интерфейса используйте `quickRfqForm(snapshot, composition?)` из `src/storage/projects.ts`. Передайте форму в `fetch`; браузер сам задаст multipart boundary. Успешный ответ преобразуйте в Blob, создайте URL через `URL.createObjectURL` и переиспользуйте тот же PDF для предпросмотра и сохранения. Освобождайте URL после замены или ухода с экрана. При `503` покажите ошибку PDF-движка и предложите повторить запрос.
+
+`openProjectStore()` сохраняет снимок и исходные Blob в IndexedDB. `exportProject()` и `importProject()` предоставляют переносимый JSON с оригиналами.
+
+Quick RFQ является предварительным запросом. Неуказанные монтажные и электрические данные явно отмечаются для подтверждения. Сервис не требует ключей внешних API.

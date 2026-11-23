@@ -1,0 +1,8 @@
+{
+  "name": "LIGHT FORGE",
+  "build": { "dockerfile": "Dockerfile" },
+  "forwardPorts": [3000],
+  "postCreateCommand": "npm ci",
+  "containerEnv": { "CHROMIUM_PATH": "/usr/bin/chromium" },
+  "remoteUser": "node"
+}
