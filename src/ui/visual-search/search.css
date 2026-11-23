@@ -1,0 +1,29 @@
+.lfs { padding: 24px; max-width: 1440px; margin: auto; color: #1a2326; }
+.lfs-header, .lfs-header nav, .lfs-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.lfs-header { justify-content:space-between; margin-bottom:20px; }
+.lfs-header nav a { color:#244752; padding:8px; }
+.lfs-brand { font-weight:700; letter-spacing:.15em; font-size:.8rem; color:#244752; }
+.lfs h1 { font-size:clamp(1.7rem,4vw,2.6rem); margin:4px 0; }
+.lfs h2 { font-size:1.2rem; margin:0 0 14px; }
+.lfs h3 { font-size:1.1rem; margin:5px 0; }
+.lfs p { line-height:1.5; }
+.lfs-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.15fr); align-items:start; gap:18px; }
+.lfs-controls { display:grid; gap:15px; min-width:0; }
+.lfs-panel { border:1px solid #dfe2e0; border-radius:14px; padding:18px; background:#fff; min-width:0; }
+.lfs-result { border-top:1px solid #dfe2e0; padding:14px 0; overflow-wrap:anywhere; }
+.lfs-result small { color:#365b65; font-weight:650; }
+.lfs-label { display:grid; gap:5px; margin:10px 0; font-weight:600; }
+.lfs input:not([type=checkbox]):not([type=range]), .lfs textarea, .lfs select { width:100%; border:1px solid #c6cdcb; border-radius:7px; padding:8px; font:inherit; background:white; color:inherit; }
+.lfs textarea { resize:vertical; margin:7px 0; }
+.lfs-checkbox { display:flex; align-items:center; gap:8px; margin:10px 0; }
+.lfs-upload { display:grid; gap:8px; border:1px dashed #a7b7bc; background:#f7f9f8; border-radius:10px; padding:15px; }
+.lfs-image { position:relative; line-height:0; width:fit-content; max-width:100%; margin:9px auto; overflow:hidden; border-radius:8px; }
+.lfs-image img { display:block; max-height:300px; max-width:100%; width:auto; height:auto; }
+.lfs-crop { position:absolute; border:2px solid white; box-shadow:0 0 0 999px #0007; pointer-events:none; }
+.lfs-crop-inputs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:8px 0; }
+.lfs-crop-inputs label { display:grid; gap:2px; }
+.lfs-button { display:inline-flex; align-items:center; justify-content:center; border:1px solid #b8c7c9; border-radius:8px; background:#f7faf9; color:#244752; padding:8px 11px; min-height:40px; text-decoration:none; cursor:pointer; font:inherit; }
+.lfs-button:disabled { opacity:.5; cursor:not-allowed; }
+.lfs-primary { background:#244752; border-color:#244752; color:white; }
+.lfs-message { padding:9px; background:#e9f0f2; border-radius:7px; }
+@media(max-width:800px) { .lfs { padding:12px; } .lfs-layout { grid-template-columns:minmax(0,1fr); } }
