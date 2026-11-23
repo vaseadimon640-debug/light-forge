@@ -1,11 +1,9 @@
 import { existsSync } from 'node:fs';
 import { chromium, type Browser } from 'playwright';
 import { localize, type QuickRfq, type RfqLanguage } from '../rfq/quick.ts';
-import type { Photo } from '../domain/project.ts';
+import { InvalidPhoto, type OriginalPhoto } from './project-photos.ts';
 
-export type OriginalPhoto = { metadata: Photo; bytes: Uint8Array };
 export class PdfBusy extends Error {}
-export class InvalidPhoto extends Error {}
 export class PdfUnavailable extends Error {}
 
 const executablePath = process.env.CHROMIUM_PATH || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined);

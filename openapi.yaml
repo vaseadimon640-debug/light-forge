@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: LIGHT FORGE Geometry API
+  title: LIGHT FORGE API
   version: 1.0.0
 paths:
   /api/geometry/resolve:
@@ -161,6 +161,83 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RfqError"
+  /api/photo-analysis:
+    get:
+      operationId: getPhotoAnalysisCapabilities
+      responses:
+        "200":
+          description: Analysis mode and upload limits
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoAnalysisCapabilities"
+    post:
+      operationId: analyzeSelectedPhotos
+      description: Analyze selected originals. In metadata_only mode only pixel
+        dimensions are returned.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - input
+              additionalProperties: false
+              properties:
+                input:
+                  type: string
+                  description: JSON-encoded PhotoAnalysisInput
+              patternProperties:
+                ^photo:[A-Za-z0-9_-]{1,64}$:
+                  type: string
+                  format: binary
+            encoding:
+              input:
+                contentType: text/plain
+      responses:
+        "200":
+          description: Photo metadata and visual estimates, when available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoAnalysisResponse"
+        "400":
+          description: Malformed multipart or JSON manifest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoAnalysisError"
+        "403":
+          description: Cross-site request rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoAnalysisError"
+        "413":
+          description: Request exceeds size limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoAnalysisError"
+        "415":
+          description: Unsupported media type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoAnalysisError"
+        "422":
+          description: Invalid photo manifest or original file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoAnalysisError"
+        "502":
+          description: Analysis engine failure or invalid output
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoAnalysisError"
   /api/health:
     get:
       operationId: health
@@ -4504,6 +4581,376 @@ components:
         - language
         - text
       additionalProperties: false
+    PhotoAnalysisInput:
+      type: object
+      properties:
+        photos:
+          minItems: 1
+          maxItems: 8
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                pattern: ^[a-zA-Z0-9_-]{1,64}$
+              name:
+                type: string
+                minLength: 1
+                maxLength: 255
+              type:
+                type: string
+                enum:
+                  - image/jpeg
+                  - image/png
+                  - image/webp
+              size:
+                type: integer
+                minimum: 1
+                maximum: 12582912
+            required:
+              - id
+              - name
+              - type
+              - size
+            additionalProperties: false
+      required:
+        - photos
+      additionalProperties: false
+    PhotoAnalysisCapabilities:
+      type: object
+      properties:
+        apiVersion:
+          type: number
+          const: 1
+        mode:
+          type: string
+          enum:
+            - metadata_only
+            - visual_analysis
+        acceptedTypes:
+          type: array
+          items:
+            type: string
+            enum:
+              - image/jpeg
+              - image/png
+              - image/webp
+        maxPhotos:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        maxPhotoBytes:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        maxTotalPhotoBytes:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        maxPhotoPixels:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        maxTotalPhotoPixels:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+      required:
+        - apiVersion
+        - mode
+        - acceptedTypes
+        - maxPhotos
+        - maxPhotoBytes
+        - maxTotalPhotoBytes
+        - maxPhotoPixels
+        - maxTotalPhotoPixels
+      additionalProperties: false
+    PhotoAnalysisResponse:
+      oneOf:
+        - type: object
+          properties:
+            apiVersion:
+              type: number
+              const: 1
+            photos:
+              minItems: 1
+              maxItems: 8
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    pattern: ^[a-zA-Z0-9_-]{1,64}$
+                  name:
+                    type: string
+                    minLength: 1
+                    maxLength: 255
+                  type:
+                    type: string
+                    enum:
+                      - image/jpeg
+                      - image/png
+                      - image/webp
+                  size:
+                    type: integer
+                    minimum: 1
+                    maximum: 12582912
+                  widthPx:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  heightPx:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                required:
+                  - id
+                  - name
+                  - type
+                  - size
+                  - widthPx
+                  - heightPx
+                additionalProperties: false
+            summary:
+              type: string
+              maxLength: 1000
+            warnings:
+              maxItems: 12
+              type: array
+              items:
+                type: string
+                maxLength: 1000
+            mode:
+              type: string
+              const: metadata_only
+            suggestions:
+              type: array
+              prefixItems: []
+              items: false
+              maxItems: 0
+          required:
+            - apiVersion
+            - photos
+            - mode
+            - suggestions
+          additionalProperties: false
+        - type: object
+          properties:
+            apiVersion:
+              type: number
+              const: 1
+            photos:
+              minItems: 1
+              maxItems: 8
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    pattern: ^[a-zA-Z0-9_-]{1,64}$
+                  name:
+                    type: string
+                    minLength: 1
+                    maxLength: 255
+                  type:
+                    type: string
+                    enum:
+                      - image/jpeg
+                      - image/png
+                      - image/webp
+                  size:
+                    type: integer
+                    minimum: 1
+                    maximum: 12582912
+                  widthPx:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  heightPx:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                required:
+                  - id
+                  - name
+                  - type
+                  - size
+                  - widthPx
+                  - heightPx
+                additionalProperties: false
+            summary:
+              type: string
+              maxLength: 1000
+            warnings:
+              maxItems: 12
+              type: array
+              items:
+                type: string
+                maxLength: 1000
+            mode:
+              type: string
+              const: visual_analysis
+            suggestions:
+              maxItems: 32
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    pattern: ^[a-zA-Z0-9_-]{1,64}$
+                  photoId:
+                    type: string
+                    pattern: ^[a-zA-Z0-9_-]{1,64}$
+                  confidence:
+                    type: string
+                    enum:
+                      - high
+                      - medium
+                      - low
+                  confidenceScore:
+                    type: number
+                    minimum: 0
+                    maximum: 1
+                  note:
+                    type: string
+                    maxLength: 1000
+                  payload:
+                    oneOf:
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: productKind
+                          value:
+                            type: string
+                            enum:
+                              - pendant
+                              - chandelier
+                              - ring
+                              - linear
+                              - arc
+                              - wall
+                              - ceiling
+                              - floor
+                              - table
+                              - custom
+                        required:
+                          - kind
+                          - value
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: material
+                          part:
+                            type: string
+                            minLength: 1
+                            maxLength: 120
+                          material:
+                            type: string
+                            enum:
+                              - solidBrass
+                              - genuineLeather
+                              - stainlessSteel
+                              - aluminium
+                              - copper
+                              - steel
+                              - artificialLeather
+                              - glass
+                              - crystal
+                              - acrylic
+                              - polycarbonate
+                              - textile
+                              - wood
+                              - stone
+                              - ceramic
+                              - custom
+                          materialDetail:
+                            type: string
+                            maxLength: 1000
+                          finish:
+                            type: string
+                            enum:
+                              - naturalSatinBrass
+                              - brushedBrass
+                              - polishedBrass
+                              - antiqueBrass
+                              - burnishedBrass
+                              - brushedBronze
+                              - polishedChrome
+                              - satinNickel
+                              - matteBlack
+                              - glossyBlack
+                              - white
+                              - custom
+                          finishDetail:
+                            type: string
+                            maxLength: 1000
+                          color:
+                            type: string
+                            minLength: 1
+                            maxLength: 120
+                        required:
+                          - kind
+                          - part
+                          - material
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          kind:
+                            type: string
+                            const: lightDirection
+                          directionId:
+                            type: string
+                            enum:
+                              - up
+                              - down
+                              - both
+                              - diffuse
+                              - adjustable
+                        required:
+                          - kind
+                          - directionId
+                        additionalProperties: false
+                  source:
+                    type: string
+                    const: estimated
+                required:
+                  - id
+                  - photoId
+                  - confidence
+                  - payload
+                  - source
+                additionalProperties: false
+          required:
+            - apiVersion
+            - photos
+            - mode
+            - suggestions
+          additionalProperties: false
+    PhotoAnalysisError:
+      type: object
+      required: *a2
+      properties:
+        error:
+          type: string
+          enum:
+            - invalid_body
+            - cross_site_request
+            - request_too_large
+            - unsupported_media_type
+            - invalid_photo_list
+            - invalid_photo
+            - invalid_engine_response
+            - engine_error
+        issues: *a3
+        message:
+          type: string
     RfqError:
       type: object
       required: *a2
