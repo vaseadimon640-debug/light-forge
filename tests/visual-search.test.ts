@@ -66,6 +66,12 @@ test('offline search API returns real catalogue links without activating paid pr
   assert.equal(response.status,200);
   const result = searchResponseSchema.parse(await response.json());
   assert.equal(result.results[0].name,'MYLINE');
+  const specs = result.results[0].specifications;
+  assert.equal(specs?.dimensionsReferTo, 'Латунное кольцо');
+  assert.deepEqual(specs?.finishes?.map(finish => finish.code), ['O', 'OB', '602']);
+  assert.deepEqual(specs?.lighting?.configurations.find(item => item.ringWidthMm === 900 && item.direction === 'down')?.outputs, [
+    { cctK: 2700, lumens: 4305 }, { cctK: 3000, lumens: 4725 }, { cctK: 4000, lumens: 5145 },
+  ]);
   assert.equal(result.originalVerified,false);
   assert.equal(result.paidEnabled,false);
   assert.deepEqual(result.links.map(link=>link.language),['en','zh-CN','it','de']);

@@ -4750,6 +4750,118 @@ components:
               confirmedDimming:
                 type: string
                 const: DALI
+              specifications:
+                type: object
+                properties:
+                  designer:
+                    type: string
+                  form:
+                    type: string
+                  materials:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        part:
+                          type: string
+                        material:
+                          type: string
+                      required:
+                        - part
+                        - material
+                      additionalProperties: false
+                  finishes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        part:
+                          type: string
+                        code:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - part
+                        - code
+                        - name
+                      additionalProperties: false
+                  dimensionsReferTo:
+                    type: string
+                  standardMaxBandLengthMm:
+                    type: number
+                    exclusiveMinimum: 0
+                  lighting:
+                    type: object
+                    properties:
+                      sourceType:
+                        type: string
+                      sourceVoltageV:
+                        type: number
+                        exclusiveMinimum: 0
+                      supplyVoltageV:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            min:
+                              type: number
+                              exclusiveMinimum: 0
+                            max:
+                              type: number
+                              exclusiveMinimum: 0
+                          required:
+                            - min
+                            - max
+                          additionalProperties: false
+                      configurations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            ringWidthMm:
+                              type: number
+                              exclusiveMinimum: 0
+                            direction:
+                              type: string
+                              enum:
+                                - up
+                                - down
+                            powerW:
+                              type: number
+                              exclusiveMinimum: 0
+                            netWeightKg:
+                              type: number
+                              exclusiveMinimum: 0
+                            outputs:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  cctK:
+                                    type: number
+                                    exclusiveMinimum: 0
+                                  lumens:
+                                    type: number
+                                    exclusiveMinimum: 0
+                                required:
+                                  - cctK
+                                  - lumens
+                                additionalProperties: false
+                          required:
+                            - ringWidthMm
+                            - direction
+                            - powerW
+                            - netWeightKg
+                            - outputs
+                          additionalProperties: false
+                    required:
+                      - sourceType
+                      - sourceVoltageV
+                      - supplyVoltageV
+                      - configurations
+                    additionalProperties: false
+                additionalProperties: false
             required:
               - id
               - name

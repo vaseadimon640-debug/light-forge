@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { newComponent, newProject, photoSchema, productTypes, type ProductType } from '../domain/project.ts';
 import type { ProjectSnapshot } from '../storage/projects.ts';
+import { mylineSpecifications, specificationsSchema } from './specifications.ts';
 
 export const sourceUrlSchema = z.url({ protocol: /^https?$/ }).max(2048).refine(value => {
   const url = new URL(value);
@@ -29,6 +30,7 @@ const searchResultSchema = z.strictObject({
   evidence: z.enum(['manufacturer_catalogue', 'catalogue_similarity', 'user_link']),
   source: sourceUrlSchema, documentUrl: sourceUrlSchema.optional(), details: z.string().optional(),
   variants: z.array(variantSchema).optional(), confirmedDimming: z.literal('DALI').optional(),
+  specifications: specificationsSchema.optional(),
 });
 export const searchUsageSchema = z.strictObject({
   enabled: z.boolean(), requestsToday: z.number().int().min(0), appDailyLimit: z.number().int().positive(), providerRemaining: z.null(),
@@ -55,6 +57,7 @@ const catalogue: CatalogueEntry[] = [
     source: 'https://www.emmemobili.it/en/prodotti/illuminazione/myline',
     documentUrl: 'https://www.emmemobili.it/_files/ugd/a74d91_0efaff6445f04844abdd37aafa04494e.pdf',
     confirmedDimming: 'DALI',
+    specifications: mylineSpecifications,
     details: 'Дизайн Adele Martelli. Латунные кольца, коричневые кожаные ремни, LED и DALI по техпаспорту.',
     variants: [
       { sku: 'ICBA02', widthMm: 900, depthMm: 60, heightMm: 700 },
