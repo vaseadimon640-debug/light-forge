@@ -1,0 +1,2949 @@
+openapi: 3.1.0
+info:
+  title: LIGHT FORGE Geometry API
+  version: 1.0.0
+paths:
+  /api/geometry/resolve:
+    post:
+      operationId: resolveComposition
+      description: Resolve a composition in millimetres. See API_CONTRACTS.md for
+        cross-field validation and datum rules.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Composition"
+      responses:
+        "200":
+          description: Calculated geometry and outstanding inputs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolvedComposition"
+        "400":
+          description: Malformed JSON
+          content:
+            application/json:
+              schema: &a1
+                type: object
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - invalid_json
+                      - request_too_large
+                      - expected_json
+                      - invalid_composition
+                  issues:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - path
+                        - message
+                      properties:
+                        path:
+                          type: array
+                          items:
+                            type:
+                              - string
+                              - integer
+                        message:
+                          type: string
+        "413":
+          description: Request exceeds 1 MiB
+          content:
+            application/json:
+              schema: *a1
+        "415":
+          description: Content-Type must be application/json
+          content:
+            application/json:
+              schema: *a1
+        "422":
+          description: Composition failed validation
+          content:
+            application/json:
+              schema: *a1
+  /api/health:
+    get:
+      operationId: health
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - geometryVersion
+                properties:
+                  status:
+                    const: ok
+                  geometryVersion:
+                    const: 1
+components:
+  schemas:
+    Composition:
+      type: object
+      properties:
+        schemaVersion:
+          type: number
+          const: 1
+        id:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{1,64}$
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        projectId:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{1,64}$
+        site:
+          type: object
+          properties:
+            ceilingFromFloorMm:
+              type: object
+              properties:
+                value:
+                  type: number
+                  minimum: 0.001
+                  maximum: 1000000
+                source:
+                  type: string
+                  enum:
+                    - user
+                    - documentation
+                    - estimated
+              required:
+                - value
+                - source
+              additionalProperties: false
+            tabletopFromFloorMm:
+              type: object
+              properties:
+                value:
+                  type: number
+                  minimum: 0
+                  maximum: 1000000
+                source:
+                  type: string
+                  enum:
+                    - user
+                    - documentation
+                    - estimated
+              required:
+                - value
+                - source
+              additionalProperties: false
+          additionalProperties: false
+        elements:
+          minItems: 1
+          maxItems: 96
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                pattern: ^[A-Za-z0-9_-]{1,64}$
+              name:
+                type: string
+                minLength: 1
+                maxLength: 120
+              productComponentId:
+                type: string
+                pattern: ^[A-Za-z0-9_-]{1,64}$
+              shape:
+                oneOf:
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: ring
+                      outerDiameterMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      innerDiameterMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      profileHeightMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - type
+                      - outerDiameterMm
+                      - innerDiameterMm
+                      - profileHeightMm
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: arc
+                      chordMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      riseMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      radialThicknessMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      depthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - type
+                      - chordMm
+                      - riseMm
+                      - radialThicknessMm
+                      - depthMm
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: linear
+                      lengthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      widthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      heightMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - type
+                      - lengthMm
+                      - widthMm
+                      - heightMm
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: envelope
+                      intendedShape:
+                        type: string
+                        enum:
+                          - ring
+                          - arc
+                          - linear
+                          - custom
+                      widthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      depthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      heightMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - type
+                      - intendedShape
+                      - widthMm
+                      - depthMm
+                      - heightMm
+                    additionalProperties: false
+              position:
+                type: object
+                properties:
+                  xy:
+                    type: object
+                    properties:
+                      x:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: -1000000
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      y:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: -1000000
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    additionalProperties: false
+                  lowest:
+                    type: object
+                    properties:
+                      datum:
+                        type: string
+                        enum:
+                          - floor
+                          - ceiling
+                          - tabletop
+                      offsetMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: -1000000
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - datum
+                      - offsetMm
+                    additionalProperties: false
+                  yawDeg:
+                    type: object
+                    properties:
+                      value:
+                        type: number
+                        minimum: -360
+                        maximum: 360
+                      source:
+                        type: string
+                        enum:
+                          - user
+                          - documentation
+                          - estimated
+                    required:
+                      - value
+                      - source
+                    additionalProperties: false
+                required:
+                  - xy
+                  - lowest
+                additionalProperties: false
+              attachments:
+                maxItems: 24
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      pattern: ^[A-Za-z0-9_-]{1,64}$
+                    label:
+                      type: string
+                      minLength: 1
+                      maxLength: 120
+                    point:
+                      type: object
+                      properties:
+                        x:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                        y:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                        z:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                      required:
+                        - x
+                        - y
+                        - z
+                      additionalProperties: false
+                  required:
+                    - id
+                    - label
+                    - point
+                  additionalProperties: false
+            required:
+              - id
+              - name
+              - shape
+              - position
+              - attachments
+            additionalProperties: false
+        canopies:
+          maxItems: 96
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                pattern: ^[A-Za-z0-9_-]{1,64}$
+              name:
+                type: string
+                minLength: 1
+                maxLength: 120
+              footprint:
+                oneOf:
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: round
+                      diameterMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - type
+                      - diameterMm
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: rectangular
+                      widthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      depthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - type
+                      - widthMm
+                      - depthMm
+                    additionalProperties: false
+              dropMm:
+                type: object
+                properties:
+                  value:
+                    type: number
+                    minimum: 0.001
+                    maximum: 1000000
+                  source:
+                    type: string
+                    enum:
+                      - user
+                      - documentation
+                      - estimated
+                required:
+                  - value
+                  - source
+                additionalProperties: false
+              position:
+                type: object
+                properties:
+                  x:
+                    type: object
+                    properties:
+                      value:
+                        type: number
+                        minimum: -1000000
+                        maximum: 1000000
+                      source:
+                        type: string
+                        enum:
+                          - user
+                          - documentation
+                          - estimated
+                    required:
+                      - value
+                      - source
+                    additionalProperties: false
+                  y:
+                    type: object
+                    properties:
+                      value:
+                        type: number
+                        minimum: -1000000
+                        maximum: 1000000
+                      source:
+                        type: string
+                        enum:
+                          - user
+                          - documentation
+                          - estimated
+                    required:
+                      - value
+                      - source
+                    additionalProperties: false
+                additionalProperties: false
+              yawDeg:
+                type: object
+                properties:
+                  value:
+                    type: number
+                    minimum: -360
+                    maximum: 360
+                  source:
+                    type: string
+                    enum:
+                      - user
+                      - documentation
+                      - estimated
+                required:
+                  - value
+                  - source
+                additionalProperties: false
+              ceilingFixings:
+                maxItems: 24
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      pattern: ^[A-Za-z0-9_-]{1,64}$
+                    label:
+                      type: string
+                      minLength: 1
+                      maxLength: 120
+                    point:
+                      type: object
+                      properties:
+                        x:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                        y:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                        z:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                      required:
+                        - x
+                        - y
+                        - z
+                      additionalProperties: false
+                  required:
+                    - id
+                    - label
+                    - point
+                  additionalProperties: false
+              exits:
+                maxItems: 24
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      pattern: ^[A-Za-z0-9_-]{1,64}$
+                    label:
+                      type: string
+                      minLength: 1
+                      maxLength: 120
+                    point:
+                      type: object
+                      properties:
+                        x:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                        y:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                        z:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                      required:
+                        - x
+                        - y
+                        - z
+                      additionalProperties: false
+                  required:
+                    - id
+                    - label
+                    - point
+                  additionalProperties: false
+            required:
+              - id
+              - name
+              - footprint
+              - dropMm
+              - position
+              - ceilingFixings
+              - exits
+            additionalProperties: false
+        suspensions:
+          maxItems: 192
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                pattern: ^[A-Za-z0-9_-]{1,64}$
+              type:
+                type: string
+                enum:
+                  - loadBearingCable
+                  - decorativeStrap
+              from:
+                type: object
+                properties:
+                  canopyId:
+                    type: string
+                    pattern: ^[A-Za-z0-9_-]{1,64}$
+                  exitId:
+                    type: string
+                    pattern: ^[A-Za-z0-9_-]{1,64}$
+                required:
+                  - canopyId
+                  - exitId
+                additionalProperties: false
+              to:
+                type: object
+                properties:
+                  elementId:
+                    type: string
+                    pattern: ^[A-Za-z0-9_-]{1,64}$
+                  attachmentId:
+                    type: string
+                    pattern: ^[A-Za-z0-9_-]{1,64}$
+                required:
+                  - elementId
+                  - attachmentId
+                additionalProperties: false
+              routing:
+                oneOf:
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: straight
+                    required:
+                      - type
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: guided
+                      guides:
+                        minItems: 1
+                        maxItems: 16
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            x:
+                              type: object
+                              properties:
+                                value:
+                                  type: number
+                                  minimum: -1000000
+                                  maximum: 1000000
+                                source:
+                                  type: string
+                                  enum:
+                                    - user
+                                    - documentation
+                                    - estimated
+                              required:
+                                - value
+                                - source
+                              additionalProperties: false
+                            y:
+                              type: object
+                              properties:
+                                value:
+                                  type: number
+                                  minimum: -1000000
+                                  maximum: 1000000
+                                source:
+                                  type: string
+                                  enum:
+                                    - user
+                                    - documentation
+                                    - estimated
+                              required:
+                                - value
+                                - source
+                              additionalProperties: false
+                            z:
+                              type: object
+                              properties:
+                                value:
+                                  type: number
+                                  minimum: -1000000
+                                  maximum: 1000000
+                                source:
+                                  type: string
+                                  enum:
+                                    - user
+                                    - documentation
+                                    - estimated
+                              required:
+                                - value
+                                - source
+                              additionalProperties: false
+                          required:
+                            - x
+                            - y
+                            - z
+                          additionalProperties: false
+                    required:
+                      - type
+                      - guides
+                    additionalProperties: false
+              allowanceMm:
+                type: object
+                properties:
+                  value:
+                    type: number
+                    minimum: 0
+                    maximum: 1000000
+                  source:
+                    type: string
+                    enum:
+                      - user
+                      - documentation
+                      - estimated
+                required:
+                  - value
+                  - source
+                additionalProperties: false
+            required:
+              - id
+              - type
+              - from
+              - to
+              - routing
+            additionalProperties: false
+      required:
+        - schemaVersion
+        - id
+        - name
+        - site
+        - elements
+        - canopies
+        - suspensions
+      additionalProperties: false
+    ResolvedComposition:
+      type: object
+      properties:
+        schemaVersion:
+          type: number
+          const: 1
+        units:
+          type: string
+          const: mm
+        compositionId:
+          type: string
+        site:
+          type: object
+          properties:
+            ceilingFromFloorMm:
+              type: object
+              properties:
+                value:
+                  type: number
+                  minimum: 0.001
+                  maximum: 1000000
+                source:
+                  type: string
+                  enum:
+                    - user
+                    - documentation
+                    - estimated
+              required:
+                - value
+                - source
+              additionalProperties: false
+            tabletopFromFloorMm:
+              type: object
+              properties:
+                value:
+                  type: number
+                  minimum: 0
+                  maximum: 1000000
+                source:
+                  type: string
+                  enum:
+                    - user
+                    - documentation
+                    - estimated
+              required:
+                - value
+                - source
+              additionalProperties: false
+          additionalProperties: false
+        elements:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              productComponentId:
+                type: string
+              shape:
+                oneOf:
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: ring
+                      outerDiameterMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      innerDiameterMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      profileHeightMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - type
+                      - outerDiameterMm
+                      - innerDiameterMm
+                      - profileHeightMm
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: arc
+                      chordMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      riseMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      radialThicknessMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      depthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - type
+                      - chordMm
+                      - riseMm
+                      - radialThicknessMm
+                      - depthMm
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: linear
+                      lengthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      widthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      heightMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - type
+                      - lengthMm
+                      - widthMm
+                      - heightMm
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: envelope
+                      intendedShape:
+                        type: string
+                        enum:
+                          - ring
+                          - arc
+                          - linear
+                          - custom
+                      widthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      depthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      heightMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - type
+                      - intendedShape
+                      - widthMm
+                      - depthMm
+                      - heightMm
+                    additionalProperties: false
+              geometry:
+                type: object
+                properties:
+                  widthMm:
+                    type: number
+                  depthMm:
+                    type: number
+                  heightMm:
+                    type: number
+                  quality:
+                    type: string
+                    enum:
+                      - specified
+                      - estimated
+                  heightQuality:
+                    type: string
+                    enum:
+                      - specified
+                      - estimated
+                  representation:
+                    type: string
+                    enum:
+                      - envelope
+                      - parametric
+                  arc:
+                    type: object
+                    properties:
+                      centerlineRadiusMm:
+                        type: number
+                      halfSweepRad:
+                        type: number
+                      centerZMm:
+                        type: number
+                      innerRadiusMm:
+                        type: number
+                      outerRadiusMm:
+                        type: number
+                    required:
+                      - centerlineRadiusMm
+                      - halfSweepRad
+                      - centerZMm
+                      - innerRadiusMm
+                      - outerRadiusMm
+                    additionalProperties: false
+                required:
+                  - widthMm
+                  - depthMm
+                  - heightMm
+                  - quality
+                  - heightQuality
+                  - representation
+                additionalProperties: false
+              origin:
+                type: object
+                properties:
+                  x:
+                    anyOf:
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: number
+                          quality:
+                            type: string
+                            enum:
+                              - specified
+                              - estimated
+                        required:
+                          - valueMm
+                          - quality
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: "null"
+                          quality:
+                            type: string
+                            const: unknown
+                          missing:
+                            type: array
+                            items:
+                              type: string
+                        required:
+                          - valueMm
+                          - quality
+                          - missing
+                        additionalProperties: false
+                  y:
+                    anyOf:
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: number
+                          quality:
+                            type: string
+                            enum:
+                              - specified
+                              - estimated
+                        required:
+                          - valueMm
+                          - quality
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: "null"
+                          quality:
+                            type: string
+                            const: unknown
+                          missing:
+                            type: array
+                            items:
+                              type: string
+                        required:
+                          - valueMm
+                          - quality
+                          - missing
+                        additionalProperties: false
+                  z:
+                    anyOf:
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: number
+                          quality:
+                            type: string
+                            enum:
+                              - specified
+                              - estimated
+                        required:
+                          - valueMm
+                          - quality
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: "null"
+                          quality:
+                            type: string
+                            const: unknown
+                          missing:
+                            type: array
+                            items:
+                              type: string
+                        required:
+                          - valueMm
+                          - quality
+                          - missing
+                        additionalProperties: false
+                required:
+                  - x
+                  - y
+                  - z
+                additionalProperties: false
+              yawDeg:
+                type: object
+                properties:
+                  value:
+                    type: number
+                    minimum: -360
+                    maximum: 360
+                  source:
+                    type: string
+                    enum:
+                      - user
+                      - documentation
+                      - estimated
+                required:
+                  - value
+                  - source
+                additionalProperties: false
+              lowest:
+                type: object
+                properties:
+                  fromFloor:
+                    anyOf:
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: number
+                          quality:
+                            type: string
+                            enum:
+                              - specified
+                              - estimated
+                        required:
+                          - valueMm
+                          - quality
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: "null"
+                          quality:
+                            type: string
+                            const: unknown
+                          missing:
+                            type: array
+                            items:
+                              type: string
+                        required:
+                          - valueMm
+                          - quality
+                          - missing
+                        additionalProperties: false
+                  belowCeiling:
+                    anyOf:
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: number
+                          quality:
+                            type: string
+                            enum:
+                              - specified
+                              - estimated
+                        required:
+                          - valueMm
+                          - quality
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: "null"
+                          quality:
+                            type: string
+                            const: unknown
+                          missing:
+                            type: array
+                            items:
+                              type: string
+                        required:
+                          - valueMm
+                          - quality
+                          - missing
+                        additionalProperties: false
+                  aboveTabletop:
+                    anyOf:
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: number
+                          quality:
+                            type: string
+                            enum:
+                              - specified
+                              - estimated
+                        required:
+                          - valueMm
+                          - quality
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: "null"
+                          quality:
+                            type: string
+                            const: unknown
+                          missing:
+                            type: array
+                            items:
+                              type: string
+                        required:
+                          - valueMm
+                          - quality
+                          - missing
+                        additionalProperties: false
+                required:
+                  - fromFloor
+                  - belowCeiling
+                  - aboveTabletop
+                additionalProperties: false
+              highest:
+                type: object
+                properties:
+                  fromFloor:
+                    anyOf:
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: number
+                          quality:
+                            type: string
+                            enum:
+                              - specified
+                              - estimated
+                        required:
+                          - valueMm
+                          - quality
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: "null"
+                          quality:
+                            type: string
+                            const: unknown
+                          missing:
+                            type: array
+                            items:
+                              type: string
+                        required:
+                          - valueMm
+                          - quality
+                          - missing
+                        additionalProperties: false
+                  belowCeiling:
+                    anyOf:
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: number
+                          quality:
+                            type: string
+                            enum:
+                              - specified
+                              - estimated
+                        required:
+                          - valueMm
+                          - quality
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: "null"
+                          quality:
+                            type: string
+                            const: unknown
+                          missing:
+                            type: array
+                            items:
+                              type: string
+                        required:
+                          - valueMm
+                          - quality
+                          - missing
+                        additionalProperties: false
+                  aboveTabletop:
+                    anyOf:
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: number
+                          quality:
+                            type: string
+                            enum:
+                              - specified
+                              - estimated
+                        required:
+                          - valueMm
+                          - quality
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: "null"
+                          quality:
+                            type: string
+                            const: unknown
+                          missing:
+                            type: array
+                            items:
+                              type: string
+                        required:
+                          - valueMm
+                          - quality
+                          - missing
+                        additionalProperties: false
+                required:
+                  - fromFloor
+                  - belowCeiling
+                  - aboveTabletop
+                additionalProperties: false
+              issues:
+                type: array
+                items:
+                  type: string
+                  enum:
+                    - bodyBelowFloor
+                    - bodyAboveCeiling
+              attachments:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    label:
+                      type: string
+                    point:
+                      type: object
+                      properties:
+                        x:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                        y:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                        z:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                      required:
+                        - x
+                        - y
+                        - z
+                      additionalProperties: false
+                    world:
+                      type: object
+                      properties:
+                        x:
+                          anyOf:
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: number
+                                quality:
+                                  type: string
+                                  enum:
+                                    - specified
+                                    - estimated
+                              required:
+                                - valueMm
+                                - quality
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: "null"
+                                quality:
+                                  type: string
+                                  const: unknown
+                                missing:
+                                  type: array
+                                  items:
+                                    type: string
+                              required:
+                                - valueMm
+                                - quality
+                                - missing
+                              additionalProperties: false
+                        y:
+                          anyOf:
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: number
+                                quality:
+                                  type: string
+                                  enum:
+                                    - specified
+                                    - estimated
+                              required:
+                                - valueMm
+                                - quality
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: "null"
+                                quality:
+                                  type: string
+                                  const: unknown
+                                missing:
+                                  type: array
+                                  items:
+                                    type: string
+                              required:
+                                - valueMm
+                                - quality
+                                - missing
+                              additionalProperties: false
+                        z:
+                          anyOf:
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: number
+                                quality:
+                                  type: string
+                                  enum:
+                                    - specified
+                                    - estimated
+                              required:
+                                - valueMm
+                                - quality
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: "null"
+                                quality:
+                                  type: string
+                                  const: unknown
+                                missing:
+                                  type: array
+                                  items:
+                                    type: string
+                              required:
+                                - valueMm
+                                - quality
+                                - missing
+                              additionalProperties: false
+                      required:
+                        - x
+                        - y
+                        - z
+                      additionalProperties: false
+                  required:
+                    - id
+                    - label
+                    - point
+                    - world
+                  additionalProperties: false
+            required:
+              - id
+              - name
+              - shape
+              - geometry
+              - origin
+              - lowest
+              - highest
+              - issues
+              - attachments
+            additionalProperties: false
+        canopies:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              footprint:
+                oneOf:
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: round
+                      diameterMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - type
+                      - diameterMm
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        const: rectangular
+                      widthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      depthMm:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0.001
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                    required:
+                      - type
+                      - widthMm
+                      - depthMm
+                    additionalProperties: false
+              dropMm:
+                type: object
+                properties:
+                  value:
+                    type: number
+                    minimum: 0
+                    maximum: 1000000
+                  source:
+                    type: string
+                    enum:
+                      - user
+                      - documentation
+                      - estimated
+                required:
+                  - value
+                  - source
+                additionalProperties: false
+              origin:
+                type: object
+                properties:
+                  x:
+                    anyOf:
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: number
+                          quality:
+                            type: string
+                            enum:
+                              - specified
+                              - estimated
+                        required:
+                          - valueMm
+                          - quality
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: "null"
+                          quality:
+                            type: string
+                            const: unknown
+                          missing:
+                            type: array
+                            items:
+                              type: string
+                        required:
+                          - valueMm
+                          - quality
+                          - missing
+                        additionalProperties: false
+                  y:
+                    anyOf:
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: number
+                          quality:
+                            type: string
+                            enum:
+                              - specified
+                              - estimated
+                        required:
+                          - valueMm
+                          - quality
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: "null"
+                          quality:
+                            type: string
+                            const: unknown
+                          missing:
+                            type: array
+                            items:
+                              type: string
+                        required:
+                          - valueMm
+                          - quality
+                          - missing
+                        additionalProperties: false
+                  z:
+                    anyOf:
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: number
+                          quality:
+                            type: string
+                            enum:
+                              - specified
+                              - estimated
+                        required:
+                          - valueMm
+                          - quality
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          valueMm:
+                            type: "null"
+                          quality:
+                            type: string
+                            const: unknown
+                          missing:
+                            type: array
+                            items:
+                              type: string
+                        required:
+                          - valueMm
+                          - quality
+                          - missing
+                        additionalProperties: false
+                required:
+                  - x
+                  - y
+                  - z
+                additionalProperties: false
+              yawDeg:
+                type: object
+                properties:
+                  value:
+                    type: number
+                    minimum: -360
+                    maximum: 360
+                  source:
+                    type: string
+                    enum:
+                      - user
+                      - documentation
+                      - estimated
+                required:
+                  - value
+                  - source
+                additionalProperties: false
+              exits:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    label:
+                      type: string
+                    point:
+                      type: object
+                      properties:
+                        x:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                        y:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                        z:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                      required:
+                        - x
+                        - y
+                        - z
+                      additionalProperties: false
+                    world:
+                      type: object
+                      properties:
+                        x:
+                          anyOf:
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: number
+                                quality:
+                                  type: string
+                                  enum:
+                                    - specified
+                                    - estimated
+                              required:
+                                - valueMm
+                                - quality
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: "null"
+                                quality:
+                                  type: string
+                                  const: unknown
+                                missing:
+                                  type: array
+                                  items:
+                                    type: string
+                              required:
+                                - valueMm
+                                - quality
+                                - missing
+                              additionalProperties: false
+                        y:
+                          anyOf:
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: number
+                                quality:
+                                  type: string
+                                  enum:
+                                    - specified
+                                    - estimated
+                              required:
+                                - valueMm
+                                - quality
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: "null"
+                                quality:
+                                  type: string
+                                  const: unknown
+                                missing:
+                                  type: array
+                                  items:
+                                    type: string
+                              required:
+                                - valueMm
+                                - quality
+                                - missing
+                              additionalProperties: false
+                        z:
+                          anyOf:
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: number
+                                quality:
+                                  type: string
+                                  enum:
+                                    - specified
+                                    - estimated
+                              required:
+                                - valueMm
+                                - quality
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: "null"
+                                quality:
+                                  type: string
+                                  const: unknown
+                                missing:
+                                  type: array
+                                  items:
+                                    type: string
+                              required:
+                                - valueMm
+                                - quality
+                                - missing
+                              additionalProperties: false
+                      required:
+                        - x
+                        - y
+                        - z
+                      additionalProperties: false
+                  required:
+                    - id
+                    - label
+                    - point
+                    - world
+                  additionalProperties: false
+              ceilingFixings:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    label:
+                      type: string
+                    point:
+                      type: object
+                      properties:
+                        x:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                        y:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                        z:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              minimum: -1000000
+                              maximum: 1000000
+                            source:
+                              type: string
+                              enum:
+                                - user
+                                - documentation
+                                - estimated
+                          required:
+                            - value
+                            - source
+                          additionalProperties: false
+                      required:
+                        - x
+                        - y
+                        - z
+                      additionalProperties: false
+                    world:
+                      type: object
+                      properties:
+                        x:
+                          anyOf:
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: number
+                                quality:
+                                  type: string
+                                  enum:
+                                    - specified
+                                    - estimated
+                              required:
+                                - valueMm
+                                - quality
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: "null"
+                                quality:
+                                  type: string
+                                  const: unknown
+                                missing:
+                                  type: array
+                                  items:
+                                    type: string
+                              required:
+                                - valueMm
+                                - quality
+                                - missing
+                              additionalProperties: false
+                        y:
+                          anyOf:
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: number
+                                quality:
+                                  type: string
+                                  enum:
+                                    - specified
+                                    - estimated
+                              required:
+                                - valueMm
+                                - quality
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: "null"
+                                quality:
+                                  type: string
+                                  const: unknown
+                                missing:
+                                  type: array
+                                  items:
+                                    type: string
+                              required:
+                                - valueMm
+                                - quality
+                                - missing
+                              additionalProperties: false
+                        z:
+                          anyOf:
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: number
+                                quality:
+                                  type: string
+                                  enum:
+                                    - specified
+                                    - estimated
+                              required:
+                                - valueMm
+                                - quality
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                valueMm:
+                                  type: "null"
+                                quality:
+                                  type: string
+                                  const: unknown
+                                missing:
+                                  type: array
+                                  items:
+                                    type: string
+                              required:
+                                - valueMm
+                                - quality
+                                - missing
+                              additionalProperties: false
+                      required:
+                        - x
+                        - y
+                        - z
+                      additionalProperties: false
+                  required:
+                    - id
+                    - label
+                    - point
+                    - world
+                  additionalProperties: false
+            required:
+              - id
+              - name
+              - footprint
+              - dropMm
+              - origin
+              - exits
+              - ceilingFixings
+            additionalProperties: false
+        suspensions:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              type:
+                type: string
+                enum:
+                  - loadBearingCable
+                  - decorativeStrap
+              from:
+                type: object
+                properties:
+                  canopyId:
+                    type: string
+                  exitId:
+                    type: string
+                required:
+                  - canopyId
+                  - exitId
+                additionalProperties: false
+              to:
+                type: object
+                properties:
+                  elementId:
+                    type: string
+                  attachmentId:
+                    type: string
+                required:
+                  - elementId
+                  - attachmentId
+                additionalProperties: false
+              points:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    x:
+                      anyOf:
+                        - type: object
+                          properties:
+                            valueMm:
+                              type: number
+                            quality:
+                              type: string
+                              enum:
+                                - specified
+                                - estimated
+                          required:
+                            - valueMm
+                            - quality
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            valueMm:
+                              type: "null"
+                            quality:
+                              type: string
+                              const: unknown
+                            missing:
+                              type: array
+                              items:
+                                type: string
+                          required:
+                            - valueMm
+                            - quality
+                            - missing
+                          additionalProperties: false
+                    y:
+                      anyOf:
+                        - type: object
+                          properties:
+                            valueMm:
+                              type: number
+                            quality:
+                              type: string
+                              enum:
+                                - specified
+                                - estimated
+                          required:
+                            - valueMm
+                            - quality
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            valueMm:
+                              type: "null"
+                            quality:
+                              type: string
+                              const: unknown
+                            missing:
+                              type: array
+                              items:
+                                type: string
+                          required:
+                            - valueMm
+                            - quality
+                            - missing
+                          additionalProperties: false
+                    z:
+                      anyOf:
+                        - type: object
+                          properties:
+                            valueMm:
+                              type: number
+                            quality:
+                              type: string
+                              enum:
+                                - specified
+                                - estimated
+                          required:
+                            - valueMm
+                            - quality
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            valueMm:
+                              type: "null"
+                            quality:
+                              type: string
+                              const: unknown
+                            missing:
+                              type: array
+                              items:
+                                type: string
+                          required:
+                            - valueMm
+                            - quality
+                            - missing
+                          additionalProperties: false
+                  required:
+                    - x
+                    - y
+                    - z
+                  additionalProperties: false
+              verticalDrop:
+                anyOf:
+                  - type: object
+                    properties:
+                      valueMm:
+                        type: number
+                      quality:
+                        type: string
+                        enum:
+                          - specified
+                          - estimated
+                    required:
+                      - valueMm
+                      - quality
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      valueMm:
+                        type: "null"
+                      quality:
+                        type: string
+                        const: unknown
+                      missing:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - valueMm
+                      - quality
+                      - missing
+                    additionalProperties: false
+              pathLength:
+                anyOf:
+                  - type: object
+                    properties:
+                      valueMm:
+                        type: number
+                      quality:
+                        type: string
+                        enum:
+                          - specified
+                          - estimated
+                    required:
+                      - valueMm
+                      - quality
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      valueMm:
+                        type: "null"
+                      quality:
+                        type: string
+                        const: unknown
+                      missing:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - valueMm
+                      - quality
+                      - missing
+                    additionalProperties: false
+              cutLength:
+                anyOf:
+                  - type: object
+                    properties:
+                      valueMm:
+                        type: number
+                      quality:
+                        type: string
+                        enum:
+                          - specified
+                          - estimated
+                    required:
+                      - valueMm
+                      - quality
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      valueMm:
+                        type: "null"
+                      quality:
+                        type: string
+                        const: unknown
+                      missing:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - valueMm
+                      - quality
+                      - missing
+                    additionalProperties: false
+              status:
+                type: string
+                enum:
+                  - invalid
+                  - incomplete
+                  - calculated
+              formula:
+                type: object
+                properties:
+                  segments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        x:
+                          anyOf:
+                            - type: object
+                              properties:
+                                offsetMm:
+                                  type: number
+                                variables:
+                                  type: object
+                                  propertyNames:
+                                    type: string
+                                    enum:
+                                      - ceilingFromFloorMm
+                                      - tabletopFromFloorMm
+                                  additionalProperties:
+                                    type: number
+                                quality:
+                                  type: string
+                                  enum:
+                                    - specified
+                                    - estimated
+                              required:
+                                - offsetMm
+                                - variables
+                                - quality
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                missing:
+                                  type: string
+                              required:
+                                - missing
+                              additionalProperties: false
+                        y:
+                          anyOf:
+                            - type: object
+                              properties:
+                                offsetMm:
+                                  type: number
+                                variables:
+                                  type: object
+                                  propertyNames:
+                                    type: string
+                                    enum:
+                                      - ceilingFromFloorMm
+                                      - tabletopFromFloorMm
+                                  additionalProperties:
+                                    type: number
+                                quality:
+                                  type: string
+                                  enum:
+                                    - specified
+                                    - estimated
+                              required:
+                                - offsetMm
+                                - variables
+                                - quality
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                missing:
+                                  type: string
+                              required:
+                                - missing
+                              additionalProperties: false
+                        z:
+                          type: object
+                          properties:
+                            offsetMm:
+                              type: number
+                            variables:
+                              type: object
+                              propertyNames:
+                                type: string
+                                enum:
+                                  - ceilingFromFloorMm
+                                  - tabletopFromFloorMm
+                              additionalProperties:
+                                type: number
+                            quality:
+                              type: string
+                              enum:
+                                - specified
+                                - estimated
+                          required:
+                            - offsetMm
+                            - variables
+                            - quality
+                          additionalProperties: false
+                      required:
+                        - x
+                        - y
+                        - z
+                      additionalProperties: false
+                  rule:
+                    type: string
+                    const: sum(hypot(deltaX, deltaY, deltaZ)) + allowanceMm
+                  allowanceMm:
+                    anyOf:
+                      - type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 0
+                            maximum: 1000000
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - segments
+                  - rule
+                  - allowanceMm
+                additionalProperties: false
+            required:
+              - id
+              - type
+              - from
+              - to
+              - points
+              - verticalDrop
+              - pathLength
+              - cutLength
+              - status
+              - formula
+            additionalProperties: false
+      required:
+        - schemaVersion
+        - units
+        - compositionId
+        - site
+        - elements
+        - canopies
+        - suspensions
+      additionalProperties: false
