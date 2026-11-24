@@ -224,7 +224,7 @@
 }
 .lf-config-steps ol {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
   list-style: none;
   margin: 0;
@@ -266,6 +266,8 @@
 .lf-config-fields[hidden], .lf-mobile-switch[hidden] { display: none; }
 @media (max-width: 780px) {
   .lf-config-steps { padding-inline: 14px; }
-  .lf-config-steps ol { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lf-config-steps ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lf-config-step-summary { align-items: flex-start; flex-direction: column; }
 }
+
+.lf-card-body :is(.lf-subblock, .lf-grid-2, .lf-field, .lf-btn)[hidden] { display: none; }

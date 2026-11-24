@@ -86,6 +86,10 @@ export function QuickRfqWorkspace({
 }: QuickRfqWorkspaceProps = {}) {
   const [snapshot, setSnapshot] = useState<ProjectSnapshot>(() => guided ? { project: newProject(), originals: {} } : createInitialSnapshot());
   const [step, setStep] = useState<ConfiguratorStep>('source');
+  const [draftReady, setDraftReady] = useState(!guided);
+  const [draftStatus, setDraftStatus] = useState<'saved' | 'invalid' | 'failed'>();
+  const componentSection = step === 'geometry' || step === 'materials' || step === 'finish' ||
+    step === 'lighting' || step === 'electrical' ? step : undefined;
   const [linkedComposition, setLinkedComposition] = useState<Composition | undefined>(undefined);
   const [activeComponentId, setActiveComponentId] = useState<string>(() => snapshot.project.components[0].id);
   const [unit, setUnit] = useState<Unit>('mm');
@@ -651,6 +655,14 @@ export function QuickRfqWorkspace({
 
   const loadSnapshotIntoWorkspace = useCallback(
     (next: ProjectSnapshot, message: string) => {
+      if (guided) {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('draft') !== next.project.id) {
+          url.searchParams.delete('draft');
+          window.history.replaceState(window.history.state, '', url);
+          setDraftStatus(undefined);
+        }
+      }
       setSnapshot(next);
       setLinkedComposition(undefined);
       setActiveComponentId(next.project.components[0].id);
@@ -667,7 +679,7 @@ export function QuickRfqWorkspace({
       resetPhotoAnalysis(next.project.photos.map(photo => photo.id));
       showToast(message);
     },
-    [resetPhotoAnalysis, resetPreviewOutputs, showToast],
+    [guided, resetPhotoAnalysis, resetPreviewOutputs, showToast],
   );
 
   const startNewProject = useCallback(() => {
@@ -704,13 +716,37 @@ export function QuickRfqWorkspace({
     const url = new URL(window.location.href);
     const id = url.searchParams.get('rfqProject');
     const create = url.searchParams.get('new') === '1';
-    if (!id && !create) return;
-    url.searchParams.delete('rfqProject');
-    url.searchParams.delete('new');
-    window.history.replaceState(window.history.state, '', url);
-    if (id) void handleOpenSavedProject(id);
-    else startNewProject();
-  }, [handleOpenSavedProject, startNewProject]);
+    const draft = guided ? url.searchParams.get('draft') : null;
+    let active = true;
+    if (id || create) {
+      url.searchParams.delete('rfqProject');
+      url.searchParams.delete('new');
+      url.searchParams.delete('draft');
+      window.history.replaceState(window.history.state, '', url);
+    }
+    async function openRequestedProject() {
+      if (id) await handleOpenSavedProject(id);
+      else if (create) startNewProject();
+      else if (draft) {
+        try {
+          const store = await openProjectStore('light-forge-configurator-drafts');
+          try {
+            const restored = await store.get(draft);
+            if (!active) return;
+            if (restored) {
+              loadSnapshotIntoWorkspace(restored, 'Черновик восстановлен');
+              setDraftStatus('saved');
+            } else {
+              setDraftStatus('failed');
+            }
+          } finally { store.close(); }
+        } catch { if (active) setDraftStatus('failed'); }
+      }
+      if (active) setDraftReady(true);
+    }
+    void openRequestedProject();
+    return () => { active = false; };
+  }, [guided, handleOpenSavedProject, loadSnapshotIntoWorkspace, startNewProject]);
 
   const handleDeleteSavedProject = useCallback(
     async (id: string) => {
@@ -770,6 +806,30 @@ export function QuickRfqWorkspace({
   const isSavedCurrent = lastSavedFingerprint === projectFingerprint;
   const hasUnsavedChanges = projectFingerprint !== (lastSavedFingerprint ?? initialFingerprint.current);
 
+  useEffect(() => {
+    if (!guided || !draftReady || !hasUnsavedChanges) return;
+    if (validationIssues.length > 0) {
+      setDraftStatus('invalid');
+      return;
+    }
+    setDraftStatus(undefined);
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const store = await openProjectStore('light-forge-configurator-drafts');
+          try { await store.save(snapshot); } finally { store.close(); }
+          if (!active) return;
+          const url = new URL(window.location.href);
+          url.searchParams.set('draft', snapshot.project.id);
+          window.history.replaceState(window.history.state, '', url);
+          setDraftStatus('saved');
+        } catch { if (active) setDraftStatus('failed'); }
+      })();
+    }, 450);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [guided, draftReady, hasUnsavedChanges, snapshot, validationIssues.length]);
+
   function selectStep(next: ConfiguratorStep) {
     setStep(next);
     setMobilePane(next === 'review' ? 'preview' : 'form');
@@ -806,7 +866,9 @@ export function QuickRfqWorkspace({
         </div>
 
         <div className="lf-topbar-actions">
-          {hasUnsavedChanges && <span className="atelier-unsaved" role="status">Есть изменения</span>}
+          {(hasUnsavedChanges || (guided && draftStatus === 'failed')) && <span className="atelier-unsaved" role="status">{guided && draftStatus === 'saved'
+            ? 'Черновик сохранён' : guided && draftStatus === 'invalid' ? 'Черновик ждёт исправления полей'
+              : guided && draftStatus === 'failed' ? 'Черновик не сохранён' : 'Есть изменения'}</span>}
           {/* Global Display Unit Switcher (storage stays canonical in mm) */}
           <div className="lf-segment" role="group" aria-label="Единицы отображения размеров">
             {units.map(u => (
@@ -1133,9 +1195,10 @@ export function QuickRfqWorkspace({
           </section>
 
           </div>
-          <div className="lf-config-fields" hidden={guided && step !== 'components'}>
+          <div className="lf-config-fields" hidden={guided && !componentSection}>
           {/* Step 3: Components (Dimensions, Light, Materials) */}
           <ComponentEditor
+            section={guided ? componentSection : undefined}
             project={snapshot.project}
             activeComponentId={activeComponentId}
             onSelectComponent={setActiveComponentId}
