@@ -1,4 +1,5 @@
 import { FilePdfIcon, LayersIcon, SearchIcon } from '@/ui/icons';
+import { RecentWork } from "@/ui/projects/RecentWork";
 
 export default function Dashboard() {
   return <main className="atelier-page">
@@ -12,6 +13,6 @@ export default function Dashboard() {
       <a href="/"><FilePdfIcon size={24} /><strong>Запрос фабрике</strong><span>Подготовить спецификацию и PDF</span></a>
       <a href="/geometry"><LayersIcon size={24} /><strong>3D Studio</strong><span>Проверить форму, уровни и подвесы</span></a>
     </section>
-    <a className="lf-btn" href="/projects">Открыть библиотеку проектов</a>
+    <RecentWork />
   </main>;
 }
