@@ -176,6 +176,7 @@ export function VisualSearch() {
   const [notice, setNotice] = useState('');
 
   const searchAbortRef = useRef<AbortController | null>(null);
+  const localCapabilitiesRequest = useRef<Promise<LocalSearchCapabilities | undefined> | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showNotice = useCallback((message: string) => {
@@ -200,13 +201,16 @@ export function VisualSearch() {
       })
       .catch(() => undefined);
 
-    fetch('/api/visual-search/local', { signal: controller.signal })
+    localCapabilitiesRequest.current = fetch('/api/visual-search/local', {
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
+    })
       .then(response => (response.ok ? response.json() : null))
       .then(data => {
         if (controller.signal.aborted || !data) return;
         const parsed = localSearchCapabilitiesSchema.safeParse(data);
         if (parsed.success) {
           setLocalCapabilities(parsed.data);
+          return parsed.data;
         }
       })
       .catch(() => undefined);
@@ -357,11 +361,11 @@ export function VisualSearch() {
       setAllowGemini(false);
       try {
         const shouldRunGemini = Boolean(gemini?.enabled && photoConsent && photo);
-        const shouldRunLocal = Boolean(runLocalPhoto && localCapabilities?.available && photo);
-
         // Local photo search runs offline without external AI APIs or Gemini consent.
         const localTask = (async () => {
-          if (!shouldRunLocal || !photo) return;
+          if (!runLocalPhoto || !photo) return;
+          const available = localCapabilities?.available ?? (await localCapabilitiesRequest.current)?.available;
+          if (!available || controller.signal.aborted) return;
           const useOriginal = shouldUseOriginalForLocalSearch(photo, crop);
           const localFile = useOriginal ? photo : await createOptimizedPhoto(photo, crop);
           if (controller.signal.aborted) return;
