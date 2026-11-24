@@ -21,7 +21,6 @@ import {
   SparkIcon,
 } from '../icons';
 import { ComponentEditor } from './ComponentEditor';
-import { StudioNavigation } from '../StudioNavigation';
 import {
   addComponentToProject,
   addPhotosToSnapshot,
@@ -386,6 +385,7 @@ export function QuickRfqWorkspace({
         const saved = await store.save(snapshot);
         setSnapshot(saved);
         setLastSavedFingerprint(snapshotFingerprint(saved, 'en-zh'));
+        window.dispatchEvent(new Event('light-forge-project-saved'));
         const list = await store.list();
         setSavedProjects(list);
         showToast(`Проект «${saved.project.name}» сохранён локально`);
@@ -666,6 +666,13 @@ export function QuickRfqWorkspace({
     [resetPhotoAnalysis, resetPreviewOutputs, showToast],
   );
 
+  const startNewProject = useCallback(() => {
+    const next = { project: newProject(), originals: {} };
+    setLastSavedFingerprint(null);
+    setMobilePane('form');
+    loadSnapshotIntoWorkspace(next, 'Создан новый проект');
+  }, [loadSnapshotIntoWorkspace]);
+
   const handleOpenSavedProject = useCallback(
     async (id: string) => {
       try {
@@ -691,11 +698,14 @@ export function QuickRfqWorkspace({
   useEffect(() => {
     const url = new URL(window.location.href);
     const id = url.searchParams.get('rfqProject');
-    if (!id) return;
+    const create = url.searchParams.get('new') === '1';
+    if (!id && !create) return;
     url.searchParams.delete('rfqProject');
+    url.searchParams.delete('new');
     window.history.replaceState(window.history.state, '', url);
-    void handleOpenSavedProject(id);
-  }, [handleOpenSavedProject]);
+    if (id) void handleOpenSavedProject(id);
+    else startNewProject();
+  }, [handleOpenSavedProject, startNewProject]);
 
   const handleDeleteSavedProject = useCallback(
     async (id: string) => {
@@ -751,7 +761,9 @@ export function QuickRfqWorkspace({
   const nameError = issuesMatching(combinedIssues, ['name'])[0]?.message;
   const qtyError = issuesMatching(combinedIssues, ['orderQuantity'])[0]?.message;
   const apiPhotoError = pdfError?.code === 'invalid_photo' ? pdfError.message : undefined;
+  const initialFingerprint = useRef(projectFingerprint);
   const isSavedCurrent = lastSavedFingerprint === projectFingerprint;
+  const hasUnsavedChanges = projectFingerprint !== (lastSavedFingerprint ?? initialFingerprint.current);
 
   return (
     <div className="lf-shell">
@@ -783,9 +795,8 @@ export function QuickRfqWorkspace({
           </span>
         </div>
 
-        <StudioNavigation current="rfq" keepWorkspaceOpen />
-
         <div className="lf-topbar-actions">
+          {hasUnsavedChanges && <span className="atelier-unsaved" role="status">Есть изменения</span>}
           {/* Global Display Unit Switcher (storage stays canonical in mm) */}
           <div className="lf-segment" role="group" aria-label="Единицы отображения размеров">
             {units.map(u => (
@@ -849,11 +860,7 @@ export function QuickRfqWorkspace({
               id="lf-new-project-btn"
               type="button"
               className="lf-btn lf-studio-banner-secondary"
-              onClick={() => {
-                setLastSavedFingerprint(null);
-                setMobilePane('form');
-                loadSnapshotIntoWorkspace({ project: newProject(), originals: {} }, 'Создан новый проект');
-              }}
+              onClick={startNewProject}
             >
               <PlusIcon size={15} /> Новый проект
             </button>
@@ -974,9 +981,9 @@ export function QuickRfqWorkspace({
             <div className="lf-card-header">
               <div className="lf-card-title-wrap">
                 <span className="lf-card-eyebrow">Шаг 3 · Заказ и тип изделия</span>
-                <h1 id="project-heading" className="lf-card-title">
+                <h2 id="project-heading" className="lf-card-title">
                   Основные параметры запроса
-                </h1>
+                </h2>
               </div>
               <span className="lf-badge lf-badge--user">
                 {productTypes[snapshot.project.kind][0]}

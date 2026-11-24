@@ -35,37 +35,6 @@
 .lf-studio-topbar .lf-status-dot--ok { background: #90c6a3; }
 .lf-studio-topbar .lf-divider-v { background: var(--studio-line); }
 
-.lf-studio-nav {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 100%;
-}
-
-.lf-studio-nav-item {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 38px;
-  padding: 0 11px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  color: #ded2c1;
-  font-size: 13px;
-  font-weight: 550;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: color 160ms, background 160ms, border-color 160ms;
-}
-
-.lf-studio-nav-item[aria-current='page'],
-a.lf-studio-nav-item:hover {
-  color: var(--studio-brass);
-  background: #352b22;
-  border-color: #624a35;
-}
-
 .lf-studio-topbar .lf-topbar-actions > .lf-btn,
 .lf-studio-topbar .lfg-actions > .lfg-btn,
 .lf-studio-topbar .lf-segment {
@@ -241,19 +210,6 @@ a.lf-studio-nav-item:hover {
   .lf-studio-intro { padding: 14px 14px 8px; }
 }
 
-@media (max-width: 860px) {
-  .lf-studio-nav {
-    order: 3;
-    width: 100%;
-    border-top: 1px solid var(--studio-line);
-    padding-top: 6px;
-  }
-
-  .lf-studio-nav-item { flex: 1; }
-
-  .lf-studio-topbar .lf-topbar-actions { width: auto; }
-}
-
 @media (max-width: 540px) {
   .lf-studio-topbar .lf-topbar-actions { justify-content: flex-start; }
   .lf-studio-topbar .lf-status-pill { padding-inline: 8px; }
@@ -264,7 +220,6 @@ a.lf-studio-nav-item:hover {
   }
   .lf-studio-banner { border-radius: 14px; }
   .lf-studio-banner-actions { margin-top: 4px; }
-  .lf-studio-nav-item { padding-inline: 5px; min-height: 42px; font-size: 12px; }
 }
 
 @media (max-width: 1120px) and (prefers-reduced-motion: no-preference) {
@@ -275,7 +230,6 @@ a.lf-studio-nav-item:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lf-studio-nav-item,
   .lf-studio-banner .lf-btn { transition: none; }
   .vs-shell :is(.vs-toast, .vs-drawer, .vs-results-flow) { animation: none; }
 }
