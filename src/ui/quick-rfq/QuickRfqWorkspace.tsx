@@ -21,6 +21,7 @@ import {
   SparkIcon,
 } from '../icons';
 import { ComponentEditor } from './ComponentEditor';
+import { StudioNavigation } from '../StudioNavigation';
 import {
   addComponentToProject,
   addPhotosToSnapshot,
@@ -755,7 +756,7 @@ export function QuickRfqWorkspace({
   return (
     <div className="lf-shell">
       {/* Top Studio Bar */}
-      <header className="lf-topbar">
+      <header className="lf-topbar lf-studio-topbar">
         <div className="lf-brand-group">
           <div className="lf-brand">
             <span className="lf-brand-mark">
@@ -763,7 +764,6 @@ export function QuickRfqWorkspace({
             </span>
             <div className="lf-brand-text">
               <span className="lf-brand-title">LIGHT FORGE</span>
-              <span className="lf-brand-sub">Quick RFQ · Спецификация и PDF EN/ZH</span>
             </div>
           </div>
 
@@ -783,11 +783,9 @@ export function QuickRfqWorkspace({
           </span>
         </div>
 
+        <StudioNavigation current="rfq" keepWorkspaceOpen />
+
         <div className="lf-topbar-actions">
-          <a href="/search" target="_blank" rel="noopener" className="lf-btn lf-btn--sm">AI Search</a>
-          <a href="/geometry" target="_blank" rel="noopener" className="lf-btn lf-btn--sm" title="Открыть 3D-конструктор в новой вкладке">
-            3D-конструктор
-          </a>
           {/* Global Display Unit Switcher (storage stays canonical in mm) */}
           <div className="lf-segment" role="group" aria-label="Единицы отображения размеров">
             {units.map(u => (
@@ -804,31 +802,6 @@ export function QuickRfqWorkspace({
               </button>
             ))}
           </div>
-
-          <button
-            id="lf-new-project-btn"
-            type="button"
-            className="lf-btn lf-btn--sm"
-            onClick={() => {
-              setLastSavedFingerprint(null);
-              loadSnapshotIntoWorkspace({ project: newProject(), originals: {} }, 'Создан новый проект');
-            }}
-          >
-            <PlusIcon size={14} /> Новый
-          </button>
-
-          <button
-            id="lf-load-myline-btn"
-            type="button"
-            className="lf-btn lf-btn--brass lf-btn--sm"
-            title="Загрузить эталонный проект MYLINE с реальными параметрами"
-            onClick={() => {
-              setLastSavedFingerprint(null);
-              loadSnapshotIntoWorkspace({ project: createMyline(), originals: {} }, 'Загружен шаблон MYLINE');
-            }}
-          >
-            <SparkIcon size={14} /> MYLINE
-          </button>
 
           <button
             id="lf-save-project-btn"
@@ -855,6 +828,40 @@ export function QuickRfqWorkspace({
         </div>
       </header>
 
+      <section className="lf-studio-intro" aria-labelledby="lf-workbench-title">
+        <div className="lf-studio-banner lf-studio-banner--rfq">
+          <h1 id="lf-workbench-title">Запрос на изготовление</h1>
+          <p>Фотографии, размеры и материалы светильника в одном PDF для фабрики.</p>
+          <div className="lf-studio-banner-actions">
+            <button
+              id="lf-load-myline-btn"
+              type="button"
+              className="lf-btn lf-studio-banner-primary"
+              onClick={() => {
+                setLastSavedFingerprint(null);
+                setMobilePane('form');
+                loadSnapshotIntoWorkspace({ project: createMyline(), originals: {} }, 'Загружен шаблон MYLINE');
+              }}
+            >
+              <SparkIcon size={15} /> Открыть пример MYLINE
+            </button>
+            <button
+              id="lf-new-project-btn"
+              type="button"
+              className="lf-btn lf-studio-banner-secondary"
+              onClick={() => {
+                setLastSavedFingerprint(null);
+                setMobilePane('form');
+                loadSnapshotIntoWorkspace({ project: newProject(), originals: {} }, 'Создан новый проект');
+              }}
+            >
+              <PlusIcon size={15} /> Новый проект
+            </button>
+          </div>
+          <span className="lf-studio-art-caption">Концептуальная иллюстрация</span>
+        </div>
+      </section>
+
       {/* Mobile Workbench Switcher */}
       <nav className="lf-mobile-switch" aria-label="Переключение редактора и предпросмотра">
         <div className="lf-segment">
@@ -880,7 +887,7 @@ export function QuickRfqWorkspace({
       </nav>
 
       {/* Main Split Workbench */}
-      <main className="lf-main">
+      <main className="lf-main" data-mobile-pane={mobilePane}>
         <div className={`lf-editor-col${mobilePane === 'preview' ? ' lf-pane--hidden-mobile' : ''}`}>
           {/* Step 1: Photos */}
           <PhotoManager

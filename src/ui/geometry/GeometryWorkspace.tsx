@@ -1,5 +1,7 @@
 'use client';
 
+import { StudioNavigation } from '../StudioNavigation';
+
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createGeometryExample, createMylineComposition } from '@/geometry/examples';
@@ -338,7 +340,7 @@ export function GeometryWorkspace() {
   return (
     <div className="lfg-root">
       {/* Top Bar */}
-      <header className="lfg-topbar">
+      <header className="lfg-topbar lf-studio-topbar">
         <div className="lfg-brand-wrap">
           <span className="lfg-brand-mark" aria-hidden="true">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -347,15 +349,13 @@ export function GeometryWorkspace() {
             </svg>
           </span>
           <div>
-            <div className="lfg-brand-title">LIGHT FORGE · 3D</div>
-            <div className="lfg-brand-sub">Параметрическая геометрия, уровни и подвесы (мм)</div>
+            <div className="lfg-brand-title">LIGHT FORGE</div>
           </div>
         </div>
 
+        <StudioNavigation current="geometry" keepWorkspaceOpen />
+
         <div className="lfg-actions">
-          <a href="/" target="_blank" rel="noopener" className="lfg-btn lfg-btn--sm" title="Открыть Quick RFQ в новой вкладке">
-            Quick RFQ
-          </a>
           <button
             id="lfg-preset-myline"
             type="button"
