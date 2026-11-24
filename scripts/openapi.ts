@@ -5,6 +5,7 @@ import { stringify } from 'yaml';
 import { z } from 'zod';
 import { compositionSchema } from '../src/geometry/schema.ts';
 import { resolvedCompositionSchema } from '../src/geometry/result.ts';
+import { detailedRfqRequestSchema } from '../src/rfq/detailed.ts';
 import { quickRfqRequestSchema, quickRfqTextSchema } from '../src/rfq/quick.ts';
 import { photoAnalysisCapabilitiesSchema, photoAnalysisInputSchema, photoAnalysisResponseSchema } from '../src/photo-analysis/contract.ts';
 
@@ -74,6 +75,45 @@ const specification = {
               schema: {
                 type: 'object', required: ['input'], additionalProperties: false,
                 properties: { input: { type: 'string', description: 'JSON-encoded QuickRfqRequest' } },
+                patternProperties: { '^photo:[A-Za-z0-9_-]{1,64}$': { type: 'string', format: 'binary' } },
+              },
+              encoding: { input: { contentType: 'text/plain' } },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Text response or PDF bytes available for inline display and download',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/QuickRfqText' } },
+              'application/pdf': { schema: { type: 'string', format: 'binary' } },
+            },
+          },
+          400: response('Invalid options, UTF-8, JSON or multipart body', { $ref: '#/components/schemas/RfqError' }),
+          403: response('Cross-site request rejected', { $ref: '#/components/schemas/RfqError' }),
+          413: response('Request exceeds size limit', { $ref: '#/components/schemas/RfqError' }),
+          415: response('Unsupported media type', { $ref: '#/components/schemas/RfqError' }),
+          422: response('Invalid snapshot, photo or project/geometry conflict', { $ref: '#/components/schemas/RfqError' }),
+          503: response('PDF renderer is busy, unavailable or timed out', { $ref: '#/components/schemas/RfqError' }),
+        },
+      },
+    },
+    '/api/rfq/detailed': {
+      post: {
+        operationId: 'detailedRfq',
+        description: 'Render one Detailed RFQ specification package (BOM, provenance summary, revision metadata, open engineering checklist) as text or printable PDF.',
+        parameters: [
+          { name: 'format', in: 'query', schema: { type: 'string', enum: ['text', 'pdf'], default: 'text' } },
+          { name: 'lang', in: 'query', schema: { type: 'string', enum: ['en', 'zh', 'en-zh'], default: 'en' } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/DetailedRfqRequest' } },
+            'multipart/form-data': {
+              schema: {
+                type: 'object', required: ['input'], additionalProperties: false,
+                properties: { input: { type: 'string', description: 'JSON-encoded DetailedRfqRequest' } },
                 patternProperties: { '^photo:[A-Za-z0-9_-]{1,64}$': { type: 'string', format: 'binary' } },
               },
               encoding: { input: { contentType: 'text/plain' } },
@@ -197,6 +237,7 @@ const specification = {
       Composition: jsonSchema(compositionSchema),
       ResolvedComposition: jsonSchema(resolvedCompositionSchema),
       QuickRfqRequest: jsonSchema(quickRfqRequestSchema),
+      DetailedRfqRequest: jsonSchema(detailedRfqRequestSchema),
       QuickRfqText: jsonSchema(quickRfqTextSchema),
       VisualSearchInput: jsonSchema(searchInputSchema),
       VisualSearchResponse: jsonSchema(searchResponseSchema),

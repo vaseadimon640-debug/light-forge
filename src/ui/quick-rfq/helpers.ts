@@ -494,3 +494,63 @@ export async function requestQuickRfqPdf(
   );
   return { blob, filename };
 }
+
+export async function requestDetailedRfqText(
+  snapshot: ProjectSnapshot,
+  language: RfqLanguage,
+  options?: { composition?: Composition; revision?: number; releaseNote?: string },
+  signal?: AbortSignal,
+): Promise<{ language: RfqLanguage; text: string }> {
+  const payload = {
+    project: snapshot.project,
+    ...(options?.composition ? { composition: options.composition } : {}),
+    ...(options?.revision ? { revision: options.revision } : {}),
+    ...(options?.releaseNote?.trim() ? { releaseNote: options.releaseNote.trim() } : {}),
+  };
+  const response = await fetch(`/api/rfq/detailed?format=text&lang=${encodeURIComponent(language)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (!response.ok) {
+    throw await parseRfqError(response);
+  }
+  return quickRfqTextSchema.parse(await response.json());
+}
+
+export async function requestDetailedRfqPdf(
+  snapshot: ProjectSnapshot,
+  language: RfqLanguage,
+  options?: { composition?: Composition; revision?: number; releaseNote?: string },
+  signal?: AbortSignal,
+): Promise<{ blob: Blob; filename: string }> {
+  const form = new FormData();
+  const payload = {
+    project: snapshot.project,
+    ...(options?.composition ? { composition: options.composition } : {}),
+    ...(options?.revision ? { revision: options.revision } : {}),
+    ...(options?.releaseNote?.trim() ? { releaseNote: options.releaseNote.trim() } : {}),
+  };
+  form.set('input', JSON.stringify(payload));
+  for (const photo of snapshot.project.photos) {
+    form.set(`photo:${photo.id}`, snapshot.originals[photo.id], photo.name);
+  }
+  const response = await fetch(`/api/rfq/detailed?format=pdf&lang=${encodeURIComponent(language)}`, {
+    method: 'POST',
+    body: form,
+    signal,
+  });
+  if (!response.ok) {
+    throw await parseRfqError(response);
+  }
+  const blob = await response.blob();
+  const code = (snapshot.project.code || 'light-forge').replace(/[^A-Za-z0-9_-]/g, '-');
+  const revSuffix = options?.revision ? `-v${options.revision}` : '';
+  const filename = filenameFromDisposition(
+    response.headers.get('content-disposition'),
+    `${code}-detailed-rfq${revSuffix}-${language}.pdf`,
+  );
+  return { blob, filename };
+}
+

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { buildDetailedRfq, type RfqTier } from '@/rfq/detailed';
 import { buildQuickRfq, localize, RfqConflict, type QuickRfq, type RfqLanguage } from '@/rfq/quick';
 import type { Composition } from '@/geometry/schema';
 import type { ProjectSnapshot } from '@/storage/projects';
@@ -30,6 +31,9 @@ type RfqPreviewPanelProps = {
   photoUrls: Record<string, string>;
   composition?: Composition;
   onDetachComposition: () => void;
+  rfqTier: RfqTier;
+  onChangeRfqTier: (tier: RfqTier) => void;
+  onOpenDocuments?: () => void;
   language: RfqLanguage;
   onChangeLanguage: (language: RfqLanguage) => void;
   activeTab: PreviewTab;
@@ -65,6 +69,9 @@ export function RfqPreviewPanel({
   photoUrls,
   composition,
   onDetachComposition,
+  rfqTier,
+  onChangeRfqTier,
+  onOpenDocuments,
   language,
   onChangeLanguage,
   activeTab,
@@ -75,25 +82,27 @@ export function RfqPreviewPanel({
   onGeneratePdf,
   onGenerateText,
 }: RfqPreviewPanelProps) {
-  const [rfqMode, setRfqMode] = useState<'quick' | 'detailed'>('quick');
   const [copied, setCopied] = useState(false);
 
   const ordered = orderedPhotos(snapshot.project);
   const canSubmit = validationIssues.length === 0;
 
-  // Live zero-duplication preview derived directly from Codex's buildQuickRfq()
+  // Live zero-duplication preview derived directly from canonical buildQuickRfq / buildDetailedRfq
   const localModel = useMemo((): { model: QuickRfq | null; conflict: string | null } => {
     if (!canSubmit) return { model: null, conflict: null };
     try {
       const input = composition ? { project: snapshot.project, composition } : { project: snapshot.project };
-      return { model: buildQuickRfq(input), conflict: null };
+      return {
+        model: rfqTier === 'detailed' ? buildDetailedRfq(input) : buildQuickRfq(input),
+        conflict: null,
+      };
     } catch (error) {
       if (error instanceof RfqConflict) {
         return { model: null, conflict: error.message };
       }
       return { model: null, conflict: null };
     }
-  }, [canSubmit, composition, snapshot.project]);
+  }, [canSubmit, composition, rfqTier, snapshot.project]);
 
   const activeError = activeTab === 'pdf' ? pdfState.error : activeTab === 'text' ? textState.error : null;
 
@@ -122,8 +131,8 @@ export function RfqPreviewPanel({
                 id="lf-mode-quick"
                 type="button"
                 className="lf-segment-btn"
-                aria-pressed={rfqMode === 'quick'}
-                onClick={() => setRfqMode('quick')}
+                aria-pressed={rfqTier === 'quick'}
+                onClick={() => onChangeRfqTier('quick')}
               >
                 Quick RFQ
               </button>
@@ -131,8 +140,8 @@ export function RfqPreviewPanel({
                 id="lf-mode-detailed"
                 type="button"
                 className="lf-segment-btn"
-                aria-pressed={rfqMode === 'detailed'}
-                onClick={() => setRfqMode('detailed')}
+                aria-pressed={rfqTier === 'detailed'}
+                onClick={() => onChangeRfqTier('detailed')}
               >
                 Detailed RFQ
               </button>
@@ -155,19 +164,25 @@ export function RfqPreviewPanel({
             </div>
           </div>
 
-          {rfqMode === 'detailed' && (
+          {rfqTier === 'detailed' && (
             <div className="lf-alert lf-alert--info" role="status">
               <div className="lf-alert-content">
-                <AlertIcon size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+                <FilePdfIcon size={15} style={{ flexShrink: 0, marginTop: 1 }} />
                 <span>
-                  <strong>Detailed RFQ (Этап 5)</strong> ещё не подключён в серверном API (BOM, чертежи, пакет
-                  сравнения фабрик). Сейчас активен производственный предпросмотр <strong>Quick RFQ</strong> без
-                  расхождения с бэкенд-контрактом.
+                  Активен <strong>Detailed RFQ</strong>: паспорт редакции, сводная ведомость материалов (BOM) и
+                  чек-лист инженерных подтверждений. Для выпуска версий <strong>v1, v2…</strong> откройте «Документы».
                 </span>
               </div>
-              <button type="button" className="lf-btn lf-btn--sm" onClick={() => setRfqMode('quick')}>
-                К Quick RFQ
-              </button>
+              {onOpenDocuments && (
+                <button
+                  id="lf-open-documents-btn"
+                  type="button"
+                  className="lf-btn lf-btn--sm"
+                  onClick={onOpenDocuments}
+                >
+                  Версии и архив
+                </button>
+              )}
             </div>
           )}
 
@@ -467,7 +482,7 @@ export function RfqPreviewPanel({
                 <RefreshIcon size={28} className="lf-spin" style={{ color: 'var(--accent)' }} />
                 <div style={{ fontWeight: 600 }}>Генерация печатного PDF A4...</div>
                 <p className="lf-card-desc">
-                  Сервер формирует документ через <code>/api/rfq/quick?format=pdf&amp;lang={language}</code> с
+                  Сервер формирует документ через <code>/api/rfq/{rfqTier}?format=pdf&amp;lang={language}</code> с
                   оригинальными фотографиями и шрифтами CJK.
                 </p>
               </div>
@@ -475,7 +490,7 @@ export function RfqPreviewPanel({
               <div style={{ width: '100%', flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <iframe
                   id="lf-pdf-iframe"
-                  title={`Предпросмотр PDF Quick RFQ (${language})`}
+                  title={`Предпросмотр PDF ${rfqTier === 'detailed' ? 'Detailed RFQ' : 'Quick RFQ'} (${language})`}
                   src={pdfState.url}
                   className="lf-pdf-frame"
                 />
@@ -502,7 +517,7 @@ export function RfqPreviewPanel({
                 <div style={{ fontWeight: 650, fontSize: 15 }}>PDF ещё не сформирован</div>
                 <p className="lf-card-desc">
                   Нажмите «Сформировать PDF», чтобы отправить текущий снимок и оригиналы фото на{' '}
-                  <code>POST /api/rfq/quick?format=pdf&amp;lang={language}</code>.
+                  <code>POST /api/rfq/{rfqTier}?format=pdf&amp;lang={language}</code>.
                 </p>
                 <button
                   type="button"
@@ -521,7 +536,7 @@ export function RfqPreviewPanel({
             <div style={{ width: '100%', maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <span className="lf-field-hint">
-                  Ответ сервера <code>POST /api/rfq/quick?format=text&amp;lang={language}</code>
+                  Ответ сервера <code>POST /api/rfq/{rfqTier}?format=text&amp;lang={language}</code>
                 </span>
                 <div style={{ display: 'inline-flex', gap: 6 }}>
                   <button

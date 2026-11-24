@@ -11,6 +11,7 @@ const sections = [
   { label: 'Конфигурация', href: '/configure', Icon: EditIcon },
   { label: '3D Studio', href: '/geometry', Icon: LayersIcon },
   { label: 'Manufacturing RFQ', href: '/', Icon: FilePdfIcon },
+  { label: 'Документы и PDF', href: '/documents', Icon: FilePdfIcon },
   { label: 'Проекты и библиотека', href: '/projects', Icon: FolderIcon },
   { label: 'Настройки', href: '/settings', Icon: SlidersIcon },
 ];
