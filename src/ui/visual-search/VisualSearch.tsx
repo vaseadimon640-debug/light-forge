@@ -1,6 +1,5 @@
 'use client';
 
-import { StudioNavigation } from '../StudioNavigation';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { imageTypes, maxPhotoBytes } from '@/domain/project';
@@ -647,7 +646,6 @@ export function VisualSearch() {
           </a>
         </div>
 
-        <StudioNavigation current="search" />
         <div className="lf-topbar-actions">
           {comparedItems.length > 0 && (
             <button

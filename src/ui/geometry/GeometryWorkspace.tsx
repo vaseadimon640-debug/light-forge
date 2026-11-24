@@ -1,6 +1,5 @@
 'use client';
 
-import { StudioNavigation } from '../StudioNavigation';
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -352,8 +351,6 @@ export function GeometryWorkspace() {
             <div className="lfg-brand-title">LIGHT FORGE</div>
           </div>
         </div>
-
-        <StudioNavigation current="geometry" keepWorkspaceOpen />
 
         <div className="lfg-actions">
           <button
