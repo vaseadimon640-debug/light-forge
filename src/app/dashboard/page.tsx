@@ -12,6 +12,7 @@ export default function Dashboard() {
       <a href="/search"><SearchIcon size={24} /><strong>Поиск по фото</strong><span>Найти модель и похожие светильники</span></a>
       <a href="/configure"><EditIcon size={24} /><strong>Настроить светильник</strong><span>Пройти от референса до спецификации</span></a>
       <a href="/"><FilePdfIcon size={24} /><strong>Запрос фабрике</strong><span>Подготовить спецификацию и PDF</span></a>
+      <a href="/documents"><FilePdfIcon size={24} /><strong>Документы и версии</strong><span>Detailed RFQ, BOM и архив PDF EN/ZH</span></a>
       <a href="/geometry"><LayersIcon size={24} /><strong>3D Studio</strong><span>Проверить форму, уровни и подвесы</span></a>
     </section>
     <RecentWork />

@@ -20,6 +20,18 @@ function openBrowser() {
   return browserPromise;
 }
 
+export async function closePdfBrowser(): Promise<void> {
+  const pending = browserPromise;
+  browserPromise = undefined;
+  if (!pending) return;
+  try {
+    const browser = await pending;
+    await browser.close();
+  } catch {
+    // Ignore already-closed browser errors
+  }
+}
+
 const escape = (text: string) => text.replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 })[character]!);

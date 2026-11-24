@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createMyline } from '@/domain/myline';
 import { newProject, productTypes, type ProductType, type Project, type Unit } from '@/domain/project';
 import type { Composition } from '@/geometry/schema';
+import type { RfqTier } from '@/rfq/detailed';
 import type { RfqLanguage } from '@/rfq/quick';
 import {
   exportProject,
@@ -31,6 +32,8 @@ import {
   pruneExcessPlacements,
   removeComponentFromProject,
   removePhotoFromSnapshot,
+  requestDetailedRfqPdf,
+  requestDetailedRfqText,
   requestQuickRfqPdf,
   requestQuickRfqText,
   setPrimaryPhoto,
@@ -93,6 +96,7 @@ export function QuickRfqWorkspace({
   const [linkedComposition, setLinkedComposition] = useState<Composition | undefined>(undefined);
   const [activeComponentId, setActiveComponentId] = useState<string>(() => snapshot.project.components[0].id);
   const [unit, setUnit] = useState<Unit>('mm');
+  const [rfqTier, setRfqTier] = useState<RfqTier>('quick');
   const [language, setLanguage] = useState<RfqLanguage>('en-zh');
   const [previewTab, setPreviewTab] = useState<PreviewTab>('sheet');
   const [mobilePane, setMobilePane] = useState<'form' | 'preview'>('form');
@@ -230,8 +234,8 @@ export function QuickRfqWorkspace({
 
   const validationIssues = useMemo(() => validateProject(snapshot.project), [snapshot.project]);
   const currentFingerprint = useMemo(
-    () => snapshotFingerprint(snapshot, language, linkedComposition),
-    [snapshot, language, linkedComposition],
+    () => `${rfqTier}:${snapshotFingerprint(snapshot, language, linkedComposition)}`,
+    [rfqTier, snapshot, language, linkedComposition],
   );
   const projectFingerprint = useMemo(
     () => snapshotFingerprint(snapshot, 'en-zh'),
@@ -252,10 +256,10 @@ export function QuickRfqWorkspace({
   }, []);
 
   const generatePdf = useCallback(
-    async (targetLang: RfqLanguage = language) => {
+    async (targetLang: RfqLanguage = language, targetTier: RfqTier = rfqTier) => {
       const targetSnapshot = snapshot;
       const targetComp = linkedComposition;
-      const targetFp = snapshotFingerprint(targetSnapshot, targetLang, targetComp);
+      const targetFp = `${targetTier}:${snapshotFingerprint(targetSnapshot, targetLang, targetComp)}`;
 
       pdfAbortRef.current?.abort();
       const controller = new AbortController();
@@ -267,19 +271,22 @@ export function QuickRfqWorkspace({
       setMobilePane('preview');
 
       try {
-        const { blob, filename } = await requestQuickRfqPdf(
-          targetSnapshot,
-          targetLang,
-          targetComp,
-          controller.signal,
-        );
+        const { blob, filename } =
+          targetTier === 'detailed'
+            ? await requestDetailedRfqPdf(
+                targetSnapshot,
+                targetLang,
+                { composition: targetComp },
+                controller.signal,
+              )
+            : await requestQuickRfqPdf(targetSnapshot, targetLang, targetComp, controller.signal);
         if (controller.signal.aborted) return;
         const nextUrl = URL.createObjectURL(blob);
         replacePdfUrl(nextUrl);
         setPdfFilename(filename);
         setPdfFingerprint(targetFp);
         setPdfStatus('ready');
-        showToast('PDF Quick RFQ сформирован');
+        showToast(targetTier === 'detailed' ? 'PDF Detailed RFQ сформирован' : 'PDF Quick RFQ сформирован');
       } catch (err) {
         if (controller.signal.aborted) return;
         const apiError: RfqApiError =
@@ -295,14 +302,14 @@ export function QuickRfqWorkspace({
         setPdfStatus('error');
       }
     },
-    [language, linkedComposition, replacePdfUrl, showToast, snapshot],
+    [language, linkedComposition, replacePdfUrl, rfqTier, showToast, snapshot],
   );
 
   const generateText = useCallback(
-    async (targetLang: RfqLanguage = language) => {
+    async (targetLang: RfqLanguage = language, targetTier: RfqTier = rfqTier) => {
       const targetSnapshot = snapshot;
       const targetComp = linkedComposition;
-      const targetFp = snapshotFingerprint(targetSnapshot, targetLang, targetComp);
+      const targetFp = `${targetTier}:${snapshotFingerprint(targetSnapshot, targetLang, targetComp)}`;
 
       textAbortRef.current?.abort();
       const controller = new AbortController();
@@ -312,7 +319,15 @@ export function QuickRfqWorkspace({
       setTextError(null);
 
       try {
-        const result = await requestQuickRfqText(targetSnapshot, targetLang, targetComp, controller.signal);
+        const result =
+          targetTier === 'detailed'
+            ? await requestDetailedRfqText(
+                targetSnapshot,
+                targetLang,
+                { composition: targetComp },
+                controller.signal,
+              )
+            : await requestQuickRfqText(targetSnapshot, targetLang, targetComp, controller.signal);
         if (controller.signal.aborted) return;
         setServerText(result.text);
         setTextFingerprint(targetFp);
@@ -332,7 +347,7 @@ export function QuickRfqWorkspace({
         setTextStatus('error');
       }
     },
-    [language, linkedComposition, snapshot],
+    [language, linkedComposition, rfqTier, snapshot],
   );
 
   // Switch preview tab cleanly; auto-fetch server text when entering Text tab if stale/empty
@@ -340,13 +355,13 @@ export function QuickRfqWorkspace({
     (nextTab: PreviewTab) => {
       setPreviewTab(nextTab);
       if (nextTab === 'text' && validationIssues.length === 0 && textFingerprint !== currentFingerprint) {
-        void generateText(language);
+        void generateText(language, rfqTier);
       }
       if (nextTab === 'pdf' && !pdfUrlRef.current && validationIssues.length === 0 && pdfStatus === 'idle') {
-        void generatePdf(language);
+        void generatePdf(language, rfqTier);
       }
     },
-    [currentFingerprint, generatePdf, generateText, language, pdfStatus, textFingerprint, validationIssues.length],
+    [currentFingerprint, generatePdf, generateText, language, pdfStatus, rfqTier, textFingerprint, validationIssues.length],
   );
 
   // Switch document language; if user is currently viewing PDF or API text, re-fetch in new language
@@ -355,13 +370,47 @@ export function QuickRfqWorkspace({
       setLanguage(nextLang);
       if (validationIssues.length > 0) return;
       if (previewTab === 'pdf' && pdfUrlRef.current) {
-        void generatePdf(nextLang);
+        void generatePdf(nextLang, rfqTier);
       } else if (previewTab === 'text') {
-        void generateText(nextLang);
+        void generateText(nextLang, rfqTier);
       }
     },
-    [generatePdf, generateText, previewTab, validationIssues.length],
+    [generatePdf, generateText, previewTab, rfqTier, validationIssues.length],
   );
+
+  const handleChangeRfqTier = useCallback(
+    (nextTier: RfqTier) => {
+      setRfqTier(nextTier);
+      if (validationIssues.length > 0) return;
+      if (previewTab === 'pdf' && pdfUrlRef.current) {
+        void generatePdf(language, nextTier);
+      } else if (previewTab === 'text') {
+        void generateText(language, nextTier);
+      }
+    },
+    [generatePdf, generateText, language, previewTab, validationIssues.length],
+  );
+
+  const handleOpenInDocuments = useCallback(async () => {
+    try {
+      if (validationIssues.length === 0) {
+        const store = await openProjectStore();
+        try {
+          const saved = await store.save(snapshot);
+          setSnapshot(saved);
+          setLastSavedFingerprint(snapshotFingerprint(saved, 'en-zh'));
+          window.dispatchEvent(new Event('light-forge-project-saved'));
+          window.location.assign(`/documents?rfqProject=${encodeURIComponent(saved.project.id)}`);
+          return;
+        } finally {
+          store.close();
+        }
+      }
+    } catch {
+      // Fallback to generic documents page if storage save fails
+    }
+    window.location.assign('/documents');
+  }, [snapshot, validationIssues.length]);
 
   // IndexedDB Library operations
   const refreshLibrary = useCallback(async () => {
@@ -1329,6 +1378,9 @@ export function QuickRfqWorkspace({
             setPdfError(null);
             setTextError(null);
           }}
+          rfqTier={rfqTier}
+          onChangeRfqTier={handleChangeRfqTier}
+          onOpenDocuments={() => void handleOpenInDocuments()}
           language={language}
           onChangeLanguage={handleChangeLanguage}
           activeTab={previewTab}
@@ -1347,8 +1399,8 @@ export function QuickRfqWorkspace({
             isStale: Boolean(serverText && textFingerprint !== currentFingerprint),
             error: textError,
           }}
-          onGeneratePdf={() => void generatePdf(language)}
-          onGenerateText={() => void generateText(language)}
+          onGeneratePdf={() => void generatePdf(language, rfqTier)}
+          onGenerateText={() => void generateText(language, rfqTier)}
         />
       </main>
 

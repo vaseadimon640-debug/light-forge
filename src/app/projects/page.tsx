@@ -111,6 +111,7 @@ export default function Projects() {
             <time dateTime={project.updatedAt}>{new Date(project.updatedAt).toLocaleDateString('ru-RU')}</time>
             <div className="atelier-inline"><a className="lf-btn" href={projectHref(project)}>Открыть</a>
               <a className="lf-btn lf-btn--subtle" href={'/configure' + projectHref(project).slice(1)}>Настроить</a>
+              <a className="lf-btn lf-btn--subtle" href={'/documents' + projectHref(project).slice(1)}>Документы</a>
               <button type="button" className="lf-btn lf-btn--subtle" disabled={Boolean(pendingId)} onClick={() => void duplicate(project)}>
                 {pendingId === project.id ? 'Копируем…' : 'Дублировать'}
               </button></div>
