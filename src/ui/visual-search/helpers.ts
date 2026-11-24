@@ -1,8 +1,19 @@
 import type { z } from 'zod';
-import { productTypes, type ProductType } from '../../domain/project.ts';
+import {
+  imageTypes,
+  maxPhotoBytes,
+  maxPhotos,
+  maxTotalPhotoBytes,
+  photoSchema,
+  productTypes,
+  projectSchema,
+  type ProductType,
+} from '../../domain/project.ts';
+import type { ProjectSnapshot } from '../../storage/projects.ts';
 import {
   canonicalSource,
   importReviewLinks,
+  projectFromSearch,
   reviewSchema,
   sourceUrlSchema,
   type ReviewLink,
@@ -21,8 +32,22 @@ export type CropRect = {
   height: number;
 };
 
+export type RotationDeg = 0 | 90 | 180 | 270;
+
+export type SearchPhotoItem = {
+  id: string;
+  file: File;
+  crop: CropRect;
+  rotation: RotationDeg;
+  zoom: number;
+  cropActive: boolean;
+};
+
 export const FULL_CROP: CropRect = { x: 0, y: 0, width: 100, height: 100 };
 export const MIN_CROP_SIZE = 10;
+export const MIN_ZOOM = 1;
+export const MAX_ZOOM = 3;
+export const ZOOM_STEP = 0.25;
 
 export function clampCrop(input: CropRect): CropRect {
   const safeNum = (value: number, fallback: number) => (Number.isFinite(value) ? value : fallback);
@@ -450,12 +475,19 @@ export function buildReviewPrompt(
   query: string,
   results: SearchResult[],
   focusedResult?: SearchResult,
+  traits?: string[],
 ): string {
   const lines: string[] = [
     'Проверь фото светильника и найденные ссылки. Опирайся на подтверждённый производителем артикул и официальный первичный источник.',
     'Если оригинал установить нельзя, явно напиши Original not verified. Отличай совпадение фотографии от совпадения изделия.',
     `Исходное описание: ${query.trim() || 'прилагаемое фото'}`,
   ];
+
+  if (traits && traits.length > 0) {
+    lines.push(
+      `Видимые признаки по фото (оценка Gemini, не подтверждает бренд): ${traits.join(', ')}`,
+    );
+  }
 
   if (focusedResult) {
     const title = [focusedResult.brand, focusedResult.name].filter(Boolean).join(' ');
@@ -605,11 +637,313 @@ export function localMatchMeta(match: LocalSearchMatch['match']): LocalMatchMeta
   };
 }
 
+export function rotateDegrees(current: RotationDeg, delta: 90 | -90): RotationDeg {
+  return ((((current + delta) % 360) + 360) % 360) as RotationDeg;
+}
+
+export function rotateCropRect(crop: CropRect, delta: 90 | -90): CropRect {
+  if (isFullCrop(crop)) return FULL_CROP;
+  if (delta === 90) {
+    return clampCrop({
+      x: 100 - (crop.y + crop.height),
+      y: crop.x,
+      width: crop.height,
+      height: crop.width,
+    });
+  }
+  return clampCrop({
+    x: crop.y,
+    y: 100 - (crop.x + crop.width),
+    width: crop.height,
+    height: crop.width,
+  });
+}
+
+export function clampZoom(value: number): number {
+  if (!Number.isFinite(value)) return MIN_ZOOM;
+  const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
+  return Math.round(clamped * 100) / 100;
+}
+
+export function isTransformDefault(crop: CropRect, rotation: RotationDeg): boolean {
+  return isFullCrop(crop) && rotation === 0;
+}
+
+export function formatTransformSummary(crop: CropRect, rotation: RotationDeg): string {
+  const parts: string[] = [];
+  if (!isFullCrop(crop)) parts.push(formatCropSummary(crop));
+  if (rotation !== 0) parts.push(`Поворот ${rotation}°`);
+  return parts.length > 0 ? parts.join(' · ') : 'Всё фото (100%)';
+}
+
 export function shouldUseOriginalForLocalSearch(
   file: Pick<File, 'size'>,
   crop: CropRect,
+  rotation: RotationDeg = 0,
 ): boolean {
-  return isFullCrop(crop) && file.size > 0 && file.size <= maxLocalPhotoBytes;
+  return isFullCrop(crop) && rotation === 0 && file.size > 0 && file.size <= maxLocalPhotoBytes;
+}
+
+function extensionForMime(type: string): string {
+  if (type === 'image/png') return 'png';
+  if (type === 'image/webp') return 'webp';
+  return 'jpg';
+}
+
+export function normalizeClipboardFile(file: File, index: number): File {
+  const rawName = file.name?.trim() ?? '';
+  const isGeneric = !rawName || /^(image|blob)(\.[a-z0-9]+)?$/i.test(rawName);
+  if (!isGeneric) return file;
+  const ext = extensionForMime(file.type);
+  return new File([file], `clipboard-photo-${index}.${ext}`, {
+    type: file.type || 'image/png',
+    lastModified: file.lastModified || Date.now(),
+  });
+}
+
+export function validateIncomingPhotos(
+  existingFiles: Pick<File, 'size'>[],
+  incomingFiles: File[],
+  source: 'upload' | 'clipboard' = 'upload',
+): { accepted: File[]; errors: string[] } {
+  const accepted: File[] = [];
+  const errors: string[] = [];
+  let totalCount = existingFiles.length;
+  let totalBytes = existingFiles.reduce((sum, file) => sum + file.size, 0);
+
+  for (const rawFile of incomingFiles) {
+    const file =
+      source === 'clipboard'
+        ? normalizeClipboardFile(rawFile, totalCount + accepted.length + 1)
+        : rawFile;
+
+    if (!imageTypes.some(type => type === file.type)) {
+      errors.push(`«${file.name || 'файл'}»: поддерживаются только JPEG, PNG или WebP.`);
+      continue;
+    }
+    if (!file.size || file.size > maxPhotoBytes) {
+      errors.push(`«${file.name}»: размер фото должен быть от 1 Б до 12 МБ.`);
+      continue;
+    }
+    if (totalCount >= maxPhotos) {
+      errors.push(`Достигнут лимит ${maxPhotos} фотографий — часть файлов не добавлена.`);
+      break;
+    }
+    if (totalBytes + file.size > maxTotalPhotoBytes) {
+      errors.push(`«${file.name}»: превышен суммарный лимит фотографий 32 МБ.`);
+      continue;
+    }
+    accepted.push(file);
+    totalCount += 1;
+    totalBytes += file.size;
+  }
+
+  return { accepted, errors };
+}
+
+export function buildRfqSnapshotFromSearch(
+  result: SearchResult,
+  variant: NonNullable<SearchResult['variants']>[number] | undefined,
+  photos: Pick<SearchPhotoItem, 'id' | 'file'>[],
+  primaryPhotoId?: string | null,
+): ProjectSnapshot {
+  const primary = photos.find(item => item.id === primaryPhotoId) ?? photos[0];
+  const base = projectFromSearch(result, variant, primary?.file);
+  if (!primary || photos.length <= 1) {
+    return base;
+  }
+
+  const nextPhotos = [...base.project.photos];
+  const nextOriginals: Record<string, Blob> = { ...base.originals };
+  let totalBytes = nextPhotos.reduce((sum, photo) => sum + photo.size, 0);
+
+  for (const item of photos) {
+    if (item.id === primary.id) continue;
+    if (nextPhotos.length >= maxPhotos) break;
+    if (totalBytes + item.file.size > maxTotalPhotoBytes) continue;
+    const parsed = photoSchema.safeParse({
+      id: crypto.randomUUID(),
+      name: item.file.name,
+      type: item.file.type,
+      size: item.file.size,
+    });
+    if (!parsed.success) continue;
+    nextPhotos.push(parsed.data);
+    nextOriginals[parsed.data.id] = item.file;
+    totalBytes += parsed.data.size;
+  }
+
+  const project = projectSchema.parse({
+    ...base.project,
+    photos: nextPhotos,
+    primaryPhotoId: base.project.primaryPhotoId,
+  });
+
+  return { project, originals: nextOriginals };
+}
+
+export type ResultCategoryFilter =
+  | 'all'
+  | 'verified_original'
+  | 'exact_match'
+  | 'similar'
+  | 'unverified';
+
+export type ResultSortKey = 'relevance' | 'name' | 'docs_first' | 'width_asc' | 'width_desc';
+export type ResultViewMode = 'grid' | 'table';
+
+export type ResultFilterState = {
+  category: ResultCategoryFilter;
+  kind: string;
+  brand: string;
+  onlyWithPdf: boolean;
+  onlySaved: boolean;
+  sort: ResultSortKey;
+};
+
+export const UNBRANDED_FILTER_VALUE = '__unbranded__';
+
+export const DEFAULT_RESULT_FILTERS: ResultFilterState = {
+  category: 'all',
+  kind: '',
+  brand: '',
+  onlyWithPdf: false,
+  onlySaved: false,
+  sort: 'relevance',
+};
+
+export function isDefaultResultFilters(filters: ResultFilterState): boolean {
+  return (
+    filters.category === 'all' &&
+    filters.kind === '' &&
+    filters.brand === '' &&
+    !filters.onlyWithPdf &&
+    !filters.onlySaved &&
+    filters.sort === 'relevance'
+  );
+}
+
+export function extractFilterOptions(results: SearchResult[]): {
+  kinds: ProductType[];
+  brands: string[];
+  hasUnbranded: boolean;
+} {
+  const kindSet = new Set<ProductType>();
+  const brandSet = new Set<string>();
+  let hasUnbranded = false;
+
+  for (const item of results) {
+    if (item.kind) kindSet.add(item.kind);
+    if (item.brand) brandSet.add(item.brand);
+    else hasUnbranded = true;
+  }
+
+  return {
+    kinds: [...kindSet].sort((a, b) =>
+      (productKindLabel(a) ?? a).localeCompare(productKindLabel(b) ?? b, 'ru'),
+    ),
+    brands: [...brandSet].sort((a, b) => a.localeCompare(b, 'ru')),
+    hasUnbranded,
+  };
+}
+
+function documentedScore(result: SearchResult): number {
+  let score = 0;
+  if (result.documentUrl) score += 4;
+  if (result.specifications) score += 3;
+  if (result.variants && result.variants.length > 0) score += 2;
+  if (result.confirmedDimming) score += 1;
+  return score;
+}
+
+function variantWidthBounds(result: SearchResult): { min: number; max: number } | undefined {
+  if (!result.variants || result.variants.length === 0) return undefined;
+  const widths = result.variants.map(v => v.widthMm);
+  return { min: Math.min(...widths), max: Math.max(...widths) };
+}
+
+export function filterAndSortResults(
+  results: SearchResult[],
+  filters: ResultFilterState,
+  isSaved?: (result: SearchResult) => boolean,
+): SearchResult[] {
+  const indexed = results
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => {
+      if (filters.category !== 'all') {
+        if (filters.category === 'similar') {
+          if (item.category !== 'visual_alternative' && item.category !== 'technical_alternative') {
+            return false;
+          }
+        } else if (item.category !== filters.category) {
+          return false;
+        }
+      }
+      if (filters.kind && item.kind !== filters.kind) return false;
+      if (filters.brand) {
+        if (filters.brand === UNBRANDED_FILTER_VALUE) {
+          if (item.brand) return false;
+        } else if (item.brand !== filters.brand) {
+          return false;
+        }
+      }
+      if (filters.onlyWithPdf && !item.documentUrl) return false;
+      if (filters.onlySaved && (!isSaved || !isSaved(item))) return false;
+      return true;
+    });
+
+  if (filters.sort === 'name') {
+    indexed.sort((a, b) => {
+      const nameA = [a.item.brand, a.item.name].filter(Boolean).join(' ');
+      const nameB = [b.item.brand, b.item.name].filter(Boolean).join(' ');
+      return nameA.localeCompare(nameB, 'ru') || a.index - b.index;
+    });
+  } else if (filters.sort === 'docs_first') {
+    indexed.sort((a, b) => documentedScore(b.item) - documentedScore(a.item) || a.index - b.index);
+  } else if (filters.sort === 'width_asc' || filters.sort === 'width_desc') {
+    indexed.sort((a, b) => {
+      const widthA = variantWidthBounds(a.item);
+      const widthB = variantWidthBounds(b.item);
+      if (!widthA && !widthB) return a.index - b.index;
+      if (!widthA) return 1;
+      if (!widthB) return -1;
+      const diff =
+        filters.sort === 'width_asc' ? widthA.min - widthB.min : widthB.max - widthA.max;
+      return diff || a.index - b.index;
+    });
+  }
+
+  return indexed.map(entry => entry.item);
+}
+
+export function buildUnconfirmedChecklist(result: SearchResult, selectedSku?: string): string[] {
+  const items: string[] = [
+    'Совпадение модели с вашим фото не подтверждено автоматически (Original not verified) — требуется визуальная сверка по карточке производителя.',
+  ];
+
+  const variants = result.variants ?? [];
+  const chosenVariant = selectedSku ? variants.find(v => v.sku === selectedSku) : undefined;
+  if (variants.length === 0) {
+    items.push('Габаритные размеры (мм) и чертёж корпуса отсутствуют в записи — запросить у фабрики.');
+  } else if (!chosenVariant) {
+    items.push('Артикул (SKU) ещё не выбран — выберите вариант перед переносом в Quick RFQ или уточните габариты в форме.');
+  }
+
+  const specs = readResultSpecifications(result);
+  if (specs?.finishes && specs.finishes.length > 0) {
+    items.push('Конкретная отделка, цвет и согласование образцов материалов фиксируются отдельно в Quick RFQ (Strict Materials).');
+  } else {
+    items.push('Основа материала, отделка и цвет не подтверждены — заполнить и согласовать отдельно в RFQ.');
+  }
+
+  if (specs?.lighting) {
+    items.push('Направление света (вверх/вниз), мощность, CCT и световой поток не привязаны к конкретному SKU в техпаспорте — уточнить при заказе.');
+  } else {
+    items.push('Мощность (Вт), световой поток (Лм), CCT, CRI и тип диммирования требуют подтверждения.');
+  }
+
+  items.push('Цена, MOQ, сроки производства, сертификаты и монтажные уровни (потолок / стол / длины подвесов) остаются пустыми до подтверждения фабрикой.');
+  return items;
 }
 
 export function resolveLocalMatchResult(match: LocalSearchMatch): SearchResult | undefined {
@@ -631,4 +965,286 @@ export function resolveLocalMatchResult(match: LocalSearchMatch): SearchResult |
     return undefined;
   }
 }
+
+export type GeminiSuggestedQuery = {
+  label: string;
+  query: string;
+};
+
+export type GeminiInsights = {
+  shape: string[];
+  suspension: string[];
+  details: string[];
+  suggestedQueries: GeminiSuggestedQuery[];
+};
+
+const shapeTraitPattern =
+  /\b(ring|rings|circle|circular|hoop|arc|arch|arched|curved|linear|bar|tube|cylinder|dome|sphere|globe|cone|oval|square|tier|tiered|cluster|chandelier|pendant|sconce|wall|table|floor|ceiling|lamp|halo|loop|кольц|дуг|линейн|шар|купол|люстр|подвесн|настольн|бра|торшер)\b/iu;
+
+const suspensionTraitPattern =
+  /\b(strap|straps|belt|band|leather|cable|cables|wire|wires|cord|rod|rods|stem|chain|canopy|ceiling\s+rose|suspended|suspension|hanging|hang|mount|mounted|bracket|base|stand|pedestal|tripod|ремен|ремн|трос|подвес|штанга|цеп|основан|стойк)\b/iu;
+
+export function buildGeminiInsights(traits: string[], userQuery = ''): GeminiInsights {
+  const unique = [...new Set(traits.map(item => item.trim()).filter(Boolean))];
+  const shape: string[] = [];
+  const suspension: string[] = [];
+  const details: string[] = [];
+
+  for (const trait of unique) {
+    const isSuspension = suspensionTraitPattern.test(trait);
+    const isShape = shapeTraitPattern.test(trait);
+    if (isShape) {
+      shape.push(trait);
+    } else if (isSuspension) {
+      suspension.push(trait);
+    } else {
+      details.push(trait);
+    }
+  }
+
+  const suggestedQueries: GeminiSuggestedQuery[] = [];
+  const seenQueries = new Set<string>();
+  const pushQuery = (label: string, raw: string) => {
+    const cleaned = raw.replace(/\s+/g, ' ').trim().slice(0, 240);
+    const key = cleaned.toLocaleLowerCase();
+    if (!cleaned || seenQueries.has(key)) return;
+    seenQueries.add(key);
+    suggestedQueries.push({ label, query: cleaned });
+  };
+
+  if (unique.length > 0) {
+    pushQuery('Все признаки кадра', unique.join(' '));
+  }
+  if (shape.length > 0 && suspension.length > 0) {
+    pushQuery('Форма и подвес', [...shape.slice(0, 2), ...suspension.slice(0, 2)].join(' '));
+  }
+  if (shape.length > 0 && details.length > 0) {
+    pushQuery('Форма и детали', [...shape.slice(0, 2), ...details.slice(0, 2)].join(' '));
+  }
+  const cleanUser = userQuery.trim();
+  if (cleanUser && unique.length > 0) {
+    pushQuery('Ваш запрос + признаки', `${cleanUser} ${unique.slice(0, 3).join(' ')}`);
+  }
+
+  return { shape, suspension, details, suggestedQueries };
+}
+
+export type EvidenceKind =
+  | 'manufacturer_catalogue'
+  | 'gemini_visual_traits'
+  | 'local_same_file'
+  | 'local_similar_image'
+  | 'manual_lens_link'
+  | 'catalogue_similarity';
+
+export type CandidateEvidence = {
+  kind: EvidenceKind;
+  label: string;
+  detail: string;
+  sourceUrl?: string;
+};
+
+export type SourceOrigin = 'catalogue' | 'gemini' | 'local_index' | 'manual_link';
+
+export type UnifiedCandidate = {
+  result: SearchResult;
+  evidences: CandidateEvidence[];
+  origins: SourceOrigin[];
+  localMatch?: LocalSearchMatch;
+  originalVerified: false;
+};
+
+export function evidenceBadgeTone(kind: EvidenceKind): CategoryTone {
+  switch (kind) {
+    case 'manufacturer_catalogue':
+    case 'local_same_file':
+      return 'doc';
+    case 'gemini_visual_traits':
+    case 'local_similar_image':
+    case 'catalogue_similarity':
+      return 'est';
+    case 'manual_lens_link':
+    default:
+      return 'accent';
+  }
+}
+
+const evidenceStrength: Record<SearchResult['evidence'], number> = {
+  manufacturer_catalogue: 3,
+  catalogue_similarity: 2,
+  user_link: 1,
+};
+
+function safeCanonicalKey(url: string): string {
+  try {
+    return canonicalSource(url);
+  } catch {
+    return url;
+  }
+}
+
+function mergeResultRecord(existing: SearchResult, incoming: SearchResult): SearchResult {
+  const incomingStronger =
+    evidenceStrength[incoming.evidence] > evidenceStrength[existing.evidence] ||
+    (evidenceStrength[incoming.evidence] === evidenceStrength[existing.evidence] &&
+      categoryPriority[incoming.category] > categoryPriority[existing.category]);
+
+  const primary = incomingStronger ? incoming : existing;
+  const fallback = incomingStronger ? existing : incoming;
+
+  return {
+    ...fallback,
+    ...primary,
+    brand: primary.brand ?? fallback.brand,
+    kind: primary.kind ?? fallback.kind,
+    documentUrl: primary.documentUrl ?? fallback.documentUrl,
+    details: primary.details ?? fallback.details,
+    variants: primary.variants ?? fallback.variants,
+    confirmedDimming: primary.confirmedDimming ?? fallback.confirmedDimming,
+    specifications: primary.specifications ?? fallback.specifications,
+  };
+}
+
+export function mergeAllSearchCandidates({
+  apiResults,
+  localMatches = [],
+  importedResults = [],
+  geminiTraits = [],
+}: {
+  apiResults: SearchResult[];
+  localMatches?: LocalSearchMatch[];
+  importedResults?: SearchResult[];
+  geminiTraits?: string[];
+}): {
+  candidates: UnifiedCandidate[];
+  byId: Map<string, UnifiedCandidate>;
+  unlinkedLocalMatches: LocalSearchMatch[];
+} {
+  const byCanonical = new Map<string, UnifiedCandidate>();
+  const unlinkedLocalMatches: LocalSearchMatch[] = [];
+
+  const upsert = (
+    item: SearchResult,
+    evidences: CandidateEvidence[],
+    origin: SourceOrigin,
+    localMatch?: LocalSearchMatch,
+  ) => {
+    const key = safeCanonicalKey(item.source);
+    const existing = byCanonical.get(key);
+    if (!existing) {
+      byCanonical.set(key, {
+        result: item,
+        evidences: [...evidences],
+        origins: [origin],
+        localMatch,
+        originalVerified: false,
+      });
+      return;
+    }
+
+    const mergedResult = mergeResultRecord(existing.result, item);
+    const mergedEvidences = [...existing.evidences];
+    for (const ev of evidences) {
+      if (!mergedEvidences.some(cur => cur.kind === ev.kind && cur.detail === ev.detail)) {
+        mergedEvidences.push(ev);
+      }
+    }
+    const mergedOrigins = existing.origins.includes(origin)
+      ? existing.origins
+      : [...existing.origins, origin];
+
+    // Prefer same_file over similar_image if both somehow match the same canonical URL
+    const mergedLocalMatch =
+      existing.localMatch?.match === 'same_file'
+        ? existing.localMatch
+        : (localMatch ?? existing.localMatch);
+
+    byCanonical.set(key, {
+      result: mergedResult,
+      evidences: mergedEvidences,
+      origins: mergedOrigins,
+      localMatch: mergedLocalMatch,
+      originalVerified: false,
+    });
+  };
+
+  for (const item of apiResults) {
+    const evidences: CandidateEvidence[] = [];
+    let origin: SourceOrigin = 'catalogue';
+    if (item.evidence === 'manufacturer_catalogue') {
+      evidences.push({
+        kind: 'manufacturer_catalogue',
+        label: 'Каталог производителя',
+        detail: item.documentUrl
+          ? `Официальная карточка (${extractDisplayHost(item.source)}) и PDF техпаспорт`
+          : `Официальная запись каталога (${extractDisplayHost(item.source)})`,
+        sourceUrl: item.source,
+      });
+    } else if (geminiTraits.length > 0) {
+      origin = 'gemini';
+      evidences.push({
+        kind: 'gemini_visual_traits',
+        label: 'Признаки Gemini',
+        detail: geminiTraits.slice(0, 4).join(', '),
+      });
+    } else {
+      evidences.push({
+        kind: 'catalogue_similarity',
+        label: 'Сходство по каталогу',
+        detail: `Совпадение по ключевым признакам (${extractDisplayHost(item.source)})`,
+        sourceUrl: item.source,
+      });
+    }
+    upsert(item, evidences, origin);
+  }
+
+  for (const match of localMatches) {
+    const linked = resolveLocalMatchResult(match);
+    if (!linked) {
+      unlinkedLocalMatches.push(match);
+      continue;
+    }
+    const ev: CandidateEvidence = {
+      kind: match.match === 'same_file' ? 'local_same_file' : 'local_similar_image',
+      label:
+        match.match === 'same_file'
+          ? 'Локальный каталог · Тот же файл'
+          : 'Локальный каталог · Похожий кадр',
+      detail: `${match.title} (${match.id})`,
+      sourceUrl: match.source,
+    };
+    upsert(linked, [ev], 'local_index', match);
+  }
+
+  for (const item of importedResults) {
+    const evidences: CandidateEvidence[] = [
+      {
+        kind: 'manual_lens_link',
+        label: 'Ручная ссылка (Lens / ChatGPT)',
+        detail: extractDisplayHost(item.source),
+        sourceUrl: item.source,
+      },
+    ];
+    if (item.evidence === 'manufacturer_catalogue') {
+      evidences.push({
+        kind: 'manufacturer_catalogue',
+        label: 'Каталог производителя',
+        detail: item.documentUrl
+          ? `Подтверждённый URL производителя (${extractDisplayHost(item.source)}) и PDF техпаспорт`
+          : `Подтверждённый URL производителя (${extractDisplayHost(item.source)})`,
+        sourceUrl: item.source,
+      });
+    }
+    upsert(item, evidences, 'manual_link');
+  }
+
+  const candidates = [...byCanonical.values()];
+  const byId = new Map<string, UnifiedCandidate>();
+  for (const candidate of candidates) {
+    byId.set(candidate.result.id, candidate);
+  }
+
+  return { candidates, byId, unlinkedLocalMatches };
+}
+
 

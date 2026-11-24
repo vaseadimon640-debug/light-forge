@@ -17,6 +17,7 @@ type LocalMatchesSectionProps = {
   creatingRfqId: string | null;
   isResultSaved: (result: SearchResult) => boolean;
   onSelectSku: (resultId: string, sku: string) => void;
+  onOpenDetail?: (result: SearchResult) => void;
   onToggleCompare: (result: SearchResult) => void;
   onFindSimilar: (result: SearchResult) => void;
   onSearchByTitle: (title: string) => void;
@@ -34,6 +35,7 @@ export function LocalMatchesSection({
   creatingRfqId,
   isResultSaved,
   onSelectSku,
+  onOpenDetail,
   onToggleCompare,
   onFindSimilar,
   onSearchByTitle,
@@ -59,8 +61,8 @@ export function LocalMatchesSection({
           </h2>
           <p className="vs-section-desc">
             {usedCrop
-              ? 'Поиск выполнен по выделенному фрагменту фото. Различаются «Тот же файл» и «Похожий кадр»; производитель требует проверки.'
-              : 'Поиск выполнен локально по загруженному фото. Различаются «Тот же файл» и «Похожий кадр»; производитель требует проверки.'}
+              ? 'Поиск выполнен по рабочей копии фото. Различаются «Тот же файл» и «Похожий кадр»; производитель требует проверки.'
+              : 'Поиск выполнен локально по основному фото. Различаются «Тот же файл» и «Похожий кадр»; производитель требует проверки.'}
           </p>
         </div>
       </div>
@@ -83,6 +85,7 @@ export function LocalMatchesSection({
                   creatingRfq={creatingRfqId === linked.id}
                   featured={matches.length === 1}
                   onSelectSku={sku => onSelectSku(linked.id, sku)}
+                  onOpenDetail={onOpenDetail}
                   onToggleCompare={onToggleCompare}
                   onFindSimilar={onFindSimilar}
                   onToggleSave={onToggleSave}

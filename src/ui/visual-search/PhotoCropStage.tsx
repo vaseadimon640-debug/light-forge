@@ -1,24 +1,46 @@
 'use client';
 
-import { useRef, useState, type DragEvent, type PointerEvent } from 'react';
-import { imageTypes } from '@/domain/project';
 import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type PointerEvent,
+  type SyntheticEvent,
+} from 'react';
+import { imageTypes, maxPhotos, maxTotalPhotoBytes } from '@/domain/project';
+import {
+  ClipboardIcon,
+  CloseIcon,
   CropIcon,
   DownloadIcon,
   LensIcon,
+  PlusIcon,
   RefreshIcon,
+  RotateCcwIcon,
+  RotateCwIcon,
+  StarIcon,
   TrashIcon,
   UploadIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
 } from '../icons';
 import {
   clampCrop,
-  formatCropSummary,
+  clampZoom,
   formatFileSize,
+  formatTransformSummary,
   FULL_CROP,
   isFullCrop,
+  isTransformDefault,
+  MAX_ZOOM,
   MIN_CROP_SIZE,
+  MIN_ZOOM,
+  ZOOM_STEP,
   type CropRect,
+  type SearchPhotoItem,
 } from './helpers';
+import { renderRotatedPreviewBlob } from './image-processing';
 
 type DragMode = 'move' | 'nw' | 'ne' | 'sw' | 'se';
 
@@ -31,35 +53,90 @@ type DragSession = {
 };
 
 type PhotoCropStageProps = {
-  photo?: File;
-  photoUrl: string;
-  crop: CropRect;
-  cropActive: boolean;
-  onChoosePhoto: (files: FileList | null) => void;
-  onClearPhoto: () => void;
-  onCropChange: (next: CropRect) => void;
-  onToggleCrop: () => void;
-  onDownloadLensCopy: () => void;
-  onDownloadOriginal: () => void;
+  photos: SearchPhotoItem[];
+  photoUrls: Record<string, string>;
+  activePhoto?: SearchPhotoItem;
+  primaryPhotoId: string | null;
+  onAddPhotos: (files: FileList | File[] | null, source?: 'upload' | 'clipboard') => void;
+  onPasteFromClipboard: () => void;
+  onSelectActivePhoto: (id: string) => void;
+  onSetPrimaryPhoto: (id: string) => void;
+  onRemovePhoto: (id: string) => void;
+  onCropChange: (id: string, next: CropRect) => void;
+  onToggleCrop: (id: string) => void;
+  onRotatePhoto: (id: string, delta: 90 | -90) => void;
+  onResetTransform: (id: string) => void;
+  onZoomChange: (id: string, nextZoom: number) => void;
+  onDownloadLensCopy: (id: string) => void;
+  onDownloadOriginal: (id: string) => void;
 };
 
 export function PhotoCropStage({
-  photo,
-  photoUrl,
-  crop,
-  cropActive,
-  onChoosePhoto,
-  onClearPhoto,
+  photos,
+  photoUrls,
+  activePhoto,
+  primaryPhotoId,
+  onAddPhotos,
+  onPasteFromClipboard,
+  onSelectActivePhoto,
+  onSetPrimaryPhoto,
+  onRemovePhoto,
   onCropChange,
   onToggleCrop,
+  onRotatePhoto,
+  onResetTransform,
+  onZoomChange,
   onDownloadLensCopy,
   onDownloadOriginal,
 }: PhotoCropStageProps) {
   const [draggingFile, setDraggingFile] = useState(false);
   const [showSliders, setShowSliders] = useState(false);
+  const [rotatedUrl, setRotatedUrl] = useState('');
+  const [baseSize, setBaseSize] = useState<{ width: number; height: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const dragRef = useRef<DragSession | null>(null);
+
+  const activeOriginalUrl = activePhoto ? (photoUrls[activePhoto.id] ?? '') : '';
+  const activeRotation = activePhoto?.rotation ?? 0;
+  const activeFile = activePhoto?.file;
+
+  // Render a non-destructive rotated preview URL whenever rotation !== 0
+  useEffect(() => {
+    if (!activeFile || activeRotation === 0) {
+      setRotatedUrl('');
+      return;
+    }
+    let cancelled = false;
+    let objectUrl = '';
+
+    void renderRotatedPreviewBlob(activeFile, activeRotation)
+      .then(blob => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setRotatedUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setRotatedUrl('');
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [activeFile, activeRotation]);
+
+  // Reset base measured dimensions whenever active photo or rotation changes
+  useEffect(() => {
+    setBaseSize(null);
+  }, [activePhoto?.id, activeRotation]);
+
+  const displayUrl =
+    activeRotation !== 0 && rotatedUrl ? rotatedUrl : activeOriginalUrl;
+
+  const totalBytes = photos.reduce((sum, item) => sum + item.file.size, 0);
+  const canAddMore = photos.length < maxPhotos && totalBytes < maxTotalPhotoBytes;
 
   function handleDragOver(event: DragEvent) {
     event.preventDefault();
@@ -74,11 +151,35 @@ export function PhotoCropStage({
   function handleDrop(event: DragEvent) {
     event.preventDefault();
     setDraggingFile(false);
-    onChoosePhoto(event.dataTransfer.files);
+    onAddPhotos(event.dataTransfer.files, 'upload');
+  }
+
+  function handleImageLoad(event: SyntheticEvent<HTMLImageElement>) {
+    if (!activePhoto || activePhoto.zoom !== 1) return;
+    const el = event.currentTarget;
+    if (el.clientWidth > 0 && el.clientHeight > 0) {
+      setBaseSize({ width: el.clientWidth, height: el.clientHeight });
+    }
+  }
+
+  function captureBaseSizeBeforeZoom() {
+    if (baseSize || !imageRef.current) return;
+    const { clientWidth, clientHeight } = imageRef.current;
+    if (clientWidth > 0 && clientHeight > 0) {
+      setBaseSize({ width: clientWidth, height: clientHeight });
+    }
+  }
+
+  function handleZoomStep(nextZoom: number) {
+    if (!activePhoto) return;
+    if (activePhoto.zoom === 1 && nextZoom > 1) {
+      captureBaseSizeBeforeZoom();
+    }
+    onZoomChange(activePhoto.id, clampZoom(nextZoom));
   }
 
   function startCropDrag(mode: DragMode, event: PointerEvent<HTMLElement>) {
-    if (!frameRef.current) return;
+    if (!frameRef.current || !activePhoto) return;
     event.preventDefault();
     event.stopPropagation();
     const rect = frameRef.current.getBoundingClientRect();
@@ -87,7 +188,7 @@ export function PhotoCropStage({
       mode,
       startX: event.clientX,
       startY: event.clientY,
-      startCrop: crop,
+      startCrop: activePhoto.crop,
       rect,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -95,7 +196,7 @@ export function PhotoCropStage({
 
   function moveCropDrag(event: PointerEvent<HTMLElement>) {
     const session = dragRef.current;
-    if (!session) return;
+    if (!session || !activePhoto) return;
     event.preventDefault();
     const dx = ((event.clientX - session.startX) / session.rect.width) * 100;
     const dy = ((event.clientY - session.startY) / session.rect.height) * 100;
@@ -106,7 +207,7 @@ export function PhotoCropStage({
     if (session.mode === 'move') {
       const nextX = Math.max(0, Math.min(100 - s.width, s.x + dx));
       const nextY = Math.max(0, Math.min(100 - s.height, s.y + dy));
-      onCropChange(clampCrop({ x: nextX, y: nextY, width: s.width, height: s.height }));
+      onCropChange(activePhoto.id, clampCrop({ x: nextX, y: nextY, width: s.width, height: s.height }));
       return;
     }
 
@@ -130,7 +231,7 @@ export function PhotoCropStage({
       nextH = Math.max(MIN_CROP_SIZE, Math.min(100 - s.y, s.height + dy));
     }
 
-    onCropChange(clampCrop({ x: nextX, y: nextY, width: nextW, height: nextH }));
+    onCropChange(activePhoto.id, clampCrop({ x: nextX, y: nextY, width: nextW, height: nextH }));
   }
 
   function endCropDrag(event: PointerEvent<HTMLElement>) {
@@ -142,7 +243,8 @@ export function PhotoCropStage({
   }
 
   function handleSliderChange(key: keyof CropRect, rawValue: number) {
-    const next = { ...crop, [key]: rawValue };
+    if (!activePhoto) return;
+    const next = { ...activePhoto.crop, [key]: rawValue };
     if (key === 'x') {
       next.width = Math.min(next.width, 100 - next.x);
     } else if (key === 'y') {
@@ -152,8 +254,19 @@ export function PhotoCropStage({
     } else if (key === 'height') {
       next.y = Math.min(next.y, 100 - next.height);
     }
-    onCropChange(clampCrop(next));
+    onCropChange(activePhoto.id, clampCrop(next));
   }
+
+  const activeIsPrimary = Boolean(activePhoto && activePhoto.id === primaryPhotoId);
+  const activeZoom = activePhoto?.zoom ?? 1;
+  const activeZoomPercent = Math.round(activeZoom * 100);
+  const zoomedFrameStyle =
+    activeZoom > 1 && baseSize
+      ? {
+          width: `${Math.round(baseSize.width * activeZoom)}px`,
+          height: `${Math.round(baseSize.height * activeZoom)}px`,
+        }
+      : undefined;
 
   return (
     <div className="vs-photo-stage">
@@ -161,16 +274,17 @@ export function PhotoCropStage({
         ref={fileInputRef}
         id="vs-photo-input"
         type="file"
+        multiple
         className="sr-only"
         aria-label="Фото для поиска"
         accept={imageTypes.join(',')}
         onChange={event => {
-          onChoosePhoto(event.target.files);
+          onAddPhotos(event.target.files, 'upload');
           event.target.value = '';
         }}
       />
 
-      {!photo || !photoUrl ? (
+      {!activePhoto || !displayUrl ? (
         <div
           id="vs-dropzone"
           role="button"
@@ -192,15 +306,29 @@ export function PhotoCropStage({
           </div>
           <div className="vs-dropzone-copy">
             <strong className="vs-dropzone-title">
-              Загрузите фотографию светильника
+              Загрузите фотографии светильника
             </strong>
             <span className="vs-dropzone-sub">
-              Перетащите изображение сюда или выберите файл с устройства
+              Перетащите одно или несколько фото, выберите файлы с устройства или нажмите Ctrl+V / ⌘V
             </span>
           </div>
-          <span className="vs-dropzone-cta">Выбрать фотографию</span>
+          <div className="vs-dropzone-actions">
+            <span className="vs-dropzone-cta">Выбрать фотографии</span>
+            <button
+              id="vs-paste-photo-btn"
+              type="button"
+              className="lf-btn lf-btn--sm"
+              onClick={event => {
+                event.stopPropagation();
+                onPasteFromClipboard();
+              }}
+            >
+              <ClipboardIcon size={14} />
+              <span>Вставить из буфера</span>
+            </button>
+          </div>
           <span className="vs-dropzone-meta">
-            JPEG, PNG или WebP до 12 МБ · Оригинал сохраняется без изменений
+            JPEG, PNG или WebP · до {maxPhotos} фото (до 12 МБ/файл, 32 МБ всего) · Оригиналы сохраняются без изменений
           </span>
         </div>
       ) : (
@@ -210,23 +338,132 @@ export function PhotoCropStage({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          <div className="vs-canvas-mat">
-            <div ref={frameRef} className="vs-image-frame">
+          {/* Stage Top Control Bar: Primary badge + Rotate + Zoom */}
+          <div className="vs-stage-topbar">
+            <div className="vs-stage-role">
+              {activeIsPrimary ? (
+                <span className="vs-primary-badge" data-testid="vs-active-primary-badge">
+                  <StarIcon size={12} filled />
+                  <span>Основное фото для поиска</span>
+                </span>
+              ) : (
+                <div className="vs-secondary-role">
+                  <span className="lf-badge lf-badge--unknown">Дополнительное фото</span>
+                  <button
+                    id="vs-make-primary-btn"
+                    type="button"
+                    className="lf-btn lf-btn--sm lf-btn--brass"
+                    onClick={() => onSetPrimaryPhoto(activePhoto.id)}
+                  >
+                    <StarIcon size={13} />
+                    <span>Сделать основным</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="vs-transform-controls" role="group" aria-label="Поворот и масштаб фото">
+              <button
+                id="vs-rotate-ccw"
+                type="button"
+                className="lf-btn lf-btn--sm lf-btn--icon"
+                title="Повернуть на 90° влево"
+                aria-label="Повернуть на 90° влево"
+                onClick={() => onRotatePhoto(activePhoto.id, -90)}
+              >
+                <RotateCcwIcon size={14} />
+              </button>
+              <button
+                id="vs-rotate-cw"
+                type="button"
+                className="lf-btn lf-btn--sm lf-btn--icon"
+                title="Повернуть на 90° вправо"
+                aria-label="Повернуть на 90° вправо"
+                onClick={() => onRotatePhoto(activePhoto.id, 90)}
+              >
+                <RotateCwIcon size={14} />
+              </button>
+              {activePhoto.rotation !== 0 && (
+                <span className="vs-transform-pill mono" data-testid="vs-rotation-value">
+                  {activePhoto.rotation}°
+                </span>
+              )}
+
+              <span className="vs-ctrl-sep" aria-hidden="true" />
+
+              <button
+                id="vs-zoom-out"
+                type="button"
+                className="lf-btn lf-btn--sm lf-btn--icon"
+                title="Уменьшить масштаб"
+                aria-label="Уменьшить масштаб"
+                disabled={activeZoom <= MIN_ZOOM}
+                onClick={() => handleZoomStep(activeZoom - ZOOM_STEP)}
+              >
+                <ZoomOutIcon size={14} />
+              </button>
+              <button
+                id="vs-zoom-reset"
+                type="button"
+                className="lf-btn lf-btn--sm mono vs-zoom-readout"
+                title="Сбросить масштаб к 100%"
+                aria-label={`Масштаб ${activeZoomPercent}%, нажмите для сброса к 100%`}
+                onClick={() => handleZoomStep(1)}
+              >
+                {activeZoomPercent}%
+              </button>
+              <button
+                id="vs-zoom-in"
+                type="button"
+                className="lf-btn lf-btn--sm lf-btn--icon"
+                title="Увеличить масштаб"
+                aria-label="Увеличить масштаб"
+                disabled={activeZoom >= MAX_ZOOM}
+                onClick={() => handleZoomStep(activeZoom + ZOOM_STEP)}
+              >
+                <ZoomInIcon size={14} />
+              </button>
+              <input
+                id="vs-zoom-slider"
+                type="range"
+                className="vs-zoom-slider"
+                aria-label="Масштаб просмотра фото"
+                min={MIN_ZOOM}
+                max={MAX_ZOOM}
+                step={ZOOM_STEP}
+                value={activeZoom}
+                onChange={event => handleZoomStep(Number(event.target.value))}
+              />
+            </div>
+          </div>
+
+          <div
+            className={`vs-canvas-mat ${activeZoom > 1 ? 'vs-canvas-mat--zoomed' : ''}`}
+            data-zoom={activeZoomPercent}
+            data-rotation={activePhoto.rotation}
+          >
+            <div
+              ref={frameRef}
+              className={`vs-image-frame ${activeZoom > 1 ? 'vs-image-frame--zoomed' : ''}`}
+              style={zoomedFrameStyle}
+            >
               <img
-                src={photoUrl}
-                alt="Загруженная фотография светильника"
+                ref={imageRef}
+                src={displayUrl}
+                alt={`Загруженная фотография светильника: ${activePhoto.file.name}`}
                 className="vs-image-el"
                 draggable={false}
+                onLoad={handleImageLoad}
               />
 
-              {cropActive && (
+              {activePhoto.cropActive && (
                 <div
                   className="vs-crop-box"
                   style={{
-                    left: `${crop.x}%`,
-                    top: `${crop.y}%`,
-                    width: `${crop.width}%`,
-                    height: `${crop.height}%`,
+                    left: `${activePhoto.crop.x}%`,
+                    top: `${activePhoto.crop.y}%`,
+                    width: `${activePhoto.crop.width}%`,
+                    height: `${activePhoto.crop.height}%`,
                   }}
                   onPointerDown={event => startCropDrag('move', event)}
                   onPointerMove={moveCropDrag}
@@ -236,7 +473,7 @@ export function PhotoCropStage({
                   aria-label="Рамка выделения светильника"
                 >
                   <span className="vs-crop-badge mono">
-                    {crop.width}% × {crop.height}%
+                    {activePhoto.crop.width}% × {activePhoto.crop.height}%
                   </span>
                   {(['nw', 'ne', 'sw', 'se'] as const).map(corner => (
                     <span
@@ -256,13 +493,13 @@ export function PhotoCropStage({
 
           <div className="vs-canvas-toolbar">
             <div className="vs-file-pill">
-              <span className="vs-file-name" title={photo.name}>
-                {photo.name}
+              <span className="vs-file-name" title={activePhoto.file.name}>
+                {activePhoto.file.name}
               </span>
-              <span className="vs-file-size mono">{formatFileSize(photo.size)}</span>
-              {!isFullCrop(crop) && (
+              <span className="vs-file-size mono">{formatFileSize(activePhoto.file.size)}</span>
+              {!isTransformDefault(activePhoto.crop, activePhoto.rotation) && (
                 <span className="lf-badge lf-badge--accent mono">
-                  {formatCropSummary(crop)}
+                  {formatTransformSummary(activePhoto.crop, activePhoto.rotation)}
                 </span>
               )}
             </div>
@@ -271,15 +508,15 @@ export function PhotoCropStage({
               <button
                 id="vs-crop-toggle"
                 type="button"
-                className={`lf-btn lf-btn--sm ${cropActive ? 'lf-btn--primary' : ''}`}
-                aria-pressed={cropActive}
-                onClick={onToggleCrop}
+                className={`lf-btn lf-btn--sm ${activePhoto.cropActive ? 'lf-btn--primary' : ''}`}
+                aria-pressed={activePhoto.cropActive}
+                onClick={() => onToggleCrop(activePhoto.id)}
               >
                 <CropIcon size={14} />
-                <span>{cropActive ? 'Готово' : 'Выделить светильник'}</span>
+                <span>{activePhoto.cropActive ? 'Готово' : 'Выделить светильник'}</span>
               </button>
 
-              {cropActive && (
+              {activePhoto.cropActive && (
                 <>
                   <button
                     type="button"
@@ -288,12 +525,12 @@ export function PhotoCropStage({
                   >
                     <span>{showSliders ? 'Скрыть ползунки' : 'Точная настройка'}</span>
                   </button>
-                  {!isFullCrop(crop) && (
+                  {!isFullCrop(activePhoto.crop) && (
                     <button
                       id="vs-crop-reset"
                       type="button"
                       className="lf-btn lf-btn--sm"
-                      onClick={() => onCropChange(FULL_CROP)}
+                      onClick={() => onCropChange(activePhoto.id, FULL_CROP)}
                     >
                       <RefreshIcon size={13} />
                       <span>Всё фото</span>
@@ -302,51 +539,80 @@ export function PhotoCropStage({
                 </>
               )}
 
+              {(!isTransformDefault(activePhoto.crop, activePhoto.rotation) || activeZoom > 1) && (
+                <button
+                  id="vs-transform-reset"
+                  type="button"
+                  className="lf-btn lf-btn--sm lf-btn--subtle"
+                  onClick={() => onResetTransform(activePhoto.id)}
+                >
+                  <RefreshIcon size={13} />
+                  <span>Сбросить правки</span>
+                </button>
+              )}
+
               <button
                 id="vs-download-lens-copy"
                 type="button"
                 className="lf-btn lf-btn--sm"
-                title="Скачать оптимизированную копию выделенной области для Google Lens"
-                onClick={onDownloadLensCopy}
+                title="Скачать рабочую копию (с учётом поворота и выделения) для Google Lens"
+                onClick={() => onDownloadLensCopy(activePhoto.id)}
               >
                 <LensIcon size={14} />
                 <span>Копия для Lens</span>
               </button>
 
               <button
+                id="vs-download-original"
                 type="button"
                 className="lf-btn lf-btn--sm lf-btn--subtle"
                 title="Скачать исходный оригинал без изменений"
-                onClick={onDownloadOriginal}
+                onClick={() => onDownloadOriginal(activePhoto.id)}
               >
                 <DownloadIcon size={14} />
                 <span>Оригинал</span>
               </button>
 
               <button
+                id="vs-paste-more-btn"
                 type="button"
                 className="lf-btn lf-btn--sm lf-btn--subtle"
-                onClick={() => fileInputRef.current?.click()}
+                title="Вставить ещё фото из буфера обмена (Ctrl+V / ⌘V)"
+                disabled={!canAddMore}
+                onClick={onPasteFromClipboard}
               >
-                <span>Заменить</span>
+                <ClipboardIcon size={14} />
+                <span>Из буфера</span>
               </button>
 
               <button
+                id="vs-add-more-photos-btn"
+                type="button"
+                className="lf-btn lf-btn--sm lf-btn--subtle"
+                disabled={!canAddMore}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <PlusIcon size={13} />
+                <span>Добавить фото</span>
+              </button>
+
+              <button
+                id="vs-remove-active-photo"
                 type="button"
                 className="lf-btn lf-btn--sm lf-btn--icon lf-btn--subtle"
-                aria-label="Удалить фотографию"
-                title="Удалить фотографию"
-                onClick={onClearPhoto}
+                aria-label={`Удалить ${activePhoto.file.name}`}
+                title="Удалить это фото"
+                onClick={() => onRemovePhoto(activePhoto.id)}
               >
                 <TrashIcon size={14} />
               </button>
             </div>
           </div>
 
-          {cropActive && (
+          {activePhoto.cropActive && (
             <div className="vs-crop-helper">
               <p className="vs-crop-tip">
-                Перетащите рамку или её углы, чтобы выделить нужный светильник. Оригинал файла остаётся без изменений.
+                Перетащите рамку или её углы, чтобы выделить нужный светильник. Поворот, масштаб и выделение создают рабочую копию — исходный оригинал файла не меняется.
               </p>
               {showSliders && (
                 <div className="vs-crop-sliders">
@@ -361,13 +627,13 @@ export function PhotoCropStage({
                     <label key={key} className="vs-slider-field">
                       <span className="vs-slider-label">
                         <span>{label}</span>
-                        <span className="mono">{crop[key]}%</span>
+                        <span className="mono">{activePhoto.crop[key]}%</span>
                       </span>
                       <input
                         type="range"
                         min={min}
                         max={max}
-                        value={crop[key]}
+                        value={activePhoto.crop[key]}
                         onChange={event => handleSliderChange(key, Number(event.target.value))}
                       />
                     </label>
@@ -376,6 +642,110 @@ export function PhotoCropStage({
               )}
             </div>
           )}
+
+          {/* Multi-photo Gallery Filmstrip */}
+          <div className="vs-filmstrip-wrap" aria-label="Загруженные фотографии">
+            <div className="vs-filmstrip-head">
+              <span className="vs-filmstrip-count">
+                Фотографии: <strong className="mono">{photos.length} / {maxPhotos}</strong>{' '}
+                <span className="vs-filmstrip-bytes mono">
+                  ({formatFileSize(totalBytes)} / 32 МБ)
+                </span>
+              </span>
+              <span className="vs-filmstrip-note">
+                Поиск выполняется по основному фото · все оригиналы переносятся в Quick RFQ
+              </span>
+            </div>
+
+            <div className="vs-filmstrip" role="list">
+              {photos.map((item, idx) => {
+                const isSelected = item.id === activePhoto.id;
+                const isPrimary = item.id === primaryPhotoId;
+                const thumbUrl = photoUrls[item.id] ?? '';
+                const hasEdit = !isTransformDefault(item.crop, item.rotation);
+                return (
+                  <div
+                    key={item.id}
+                    role="listitem"
+                    className={`vs-thumb-card ${isSelected ? 'vs-thumb-card--active' : ''} ${isPrimary ? 'vs-thumb-card--primary' : ''}`}
+                    data-photo-id={item.id}
+                    data-primary={isPrimary ? 'true' : 'false'}
+                  >
+                    <button
+                      type="button"
+                      className="vs-thumb-select"
+                      aria-current={isSelected ? 'true' : undefined}
+                      aria-label={`Просмотреть фото ${idx + 1}: ${item.file.name}${isPrimary ? ' (основное)' : ''}`}
+                      onClick={() => onSelectActivePhoto(item.id)}
+                    >
+                      {thumbUrl && (
+                        <img
+                          src={thumbUrl}
+                          alt={item.file.name}
+                          className="vs-thumb-img"
+                          style={
+                            item.rotation !== 0
+                              ? { transform: `rotate(${item.rotation}deg)` }
+                              : undefined
+                          }
+                        />
+                      )}
+                      {isPrimary && (
+                        <span className="vs-thumb-badge">
+                          <StarIcon size={10} filled />
+                          <span>Основное</span>
+                        </span>
+                      )}
+                      {hasEdit && (
+                        <span className="vs-thumb-edit-dot mono" title={formatTransformSummary(item.crop, item.rotation)}>
+                          {item.rotation !== 0 ? `${item.rotation}°` : '✂'}
+                        </span>
+                      )}
+                    </button>
+
+                    <div className="vs-thumb-bar">
+                      <span className="vs-thumb-name" title={item.file.name}>
+                        {item.file.name}
+                      </span>
+                      <div className="vs-thumb-actions">
+                        <button
+                          type="button"
+                          className={`vs-thumb-icon-btn ${isPrimary ? 'vs-thumb-icon-btn--primary' : ''}`}
+                          aria-pressed={isPrimary}
+                          aria-label={isPrimary ? `Основное фото: ${item.file.name}` : `Сделать основным: ${item.file.name}`}
+                          title={isPrimary ? 'Основное фото' : 'Сделать основным'}
+                          onClick={() => onSetPrimaryPhoto(item.id)}
+                        >
+                          <StarIcon size={12} filled={isPrimary} />
+                        </button>
+                        <button
+                          type="button"
+                          className="vs-thumb-icon-btn"
+                          aria-label={`Удалить фото ${item.file.name}`}
+                          title="Удалить фото"
+                          onClick={() => onRemovePhoto(item.id)}
+                        >
+                          <CloseIcon size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {canAddMore && (
+                <button
+                  type="button"
+                  className="vs-thumb-add"
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="Добавить ещё фотографию"
+                >
+                  <PlusIcon size={18} />
+                  <span>Ещё фото</span>
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
