@@ -8,6 +8,9 @@ export const studioPreferencesSchema = z.strictObject({
   defaultRfqLanguage: languageSchema,
   defaultRfqTier: rfqTierSchema,
   defaultCurrency: z.enum(['USD', 'EUR', 'CNY']),
+  preferredGeminiModel: z.string().max(80),
+  deepAiAnalysisEnabled: z.boolean(),
+  requireExternalAiConsent: z.boolean(),
   lengthUnit: z.literal('mm'),
   paidAiApisEnabled: z.literal(false),
 });
@@ -18,6 +21,9 @@ export const defaultStudioPreferences: StudioPreferences = {
   defaultRfqLanguage: 'en-zh',
   defaultRfqTier: 'detailed',
   defaultCurrency: 'USD',
+  preferredGeminiModel: '',
+  deepAiAnalysisEnabled: false,
+  requireExternalAiConsent: true,
   lengthUnit: 'mm',
   paidAiApisEnabled: false,
 };
@@ -29,6 +35,18 @@ export function parseStudioPreferences(raw: unknown): StudioPreferences {
     defaultRfqLanguage: record.defaultRfqLanguage ?? defaultStudioPreferences.defaultRfqLanguage,
     defaultRfqTier: record.defaultRfqTier ?? defaultStudioPreferences.defaultRfqTier,
     defaultCurrency: record.defaultCurrency ?? defaultStudioPreferences.defaultCurrency,
+    preferredGeminiModel:
+      typeof record.preferredGeminiModel === 'string'
+        ? record.preferredGeminiModel.trim().slice(0, 80)
+        : defaultStudioPreferences.preferredGeminiModel,
+    deepAiAnalysisEnabled:
+      typeof record.deepAiAnalysisEnabled === 'boolean'
+        ? record.deepAiAnalysisEnabled
+        : defaultStudioPreferences.deepAiAnalysisEnabled,
+    requireExternalAiConsent:
+      typeof record.requireExternalAiConsent === 'boolean'
+        ? record.requireExternalAiConsent
+        : defaultStudioPreferences.requireExternalAiConsent,
     lengthUnit: 'mm' as const,
     paidAiApisEnabled: false as const,
   };
@@ -49,7 +67,17 @@ export function loadStudioPreferences(storage?: Pick<Storage, 'getItem'>): Studi
 }
 
 export function saveStudioPreferences(
-  patch: Partial<Pick<StudioPreferences, 'defaultRfqLanguage' | 'defaultRfqTier' | 'defaultCurrency'>>,
+  patch: Partial<
+    Pick<
+      StudioPreferences,
+      | 'defaultRfqLanguage'
+      | 'defaultRfqTier'
+      | 'defaultCurrency'
+      | 'preferredGeminiModel'
+      | 'deepAiAnalysisEnabled'
+      | 'requireExternalAiConsent'
+    >
+  >,
   storage?: Pick<Storage, 'getItem' | 'setItem'>,
 ): { preferences: StudioPreferences; persisted: boolean } {
   const current = loadStudioPreferences(storage);

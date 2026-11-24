@@ -1,18 +1,26 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   geminiStatusResponseSchema,
   geminiTestResponseSchema,
   type GeminiStatusResponse,
 } from '@/ai/gemini-contract';
+import {
+  defaultStudioPreferences,
+  loadStudioPreferences,
+  saveStudioPreferences,
+  type StudioPreferences,
+} from '@/storage/preferences';
 import { formatTimestampRu } from './helpers';
 
 export function GeminiAiPanel() {
   const [status, setStatus] = useState<GeminiStatusResponse | null>(null);
+  const [prefs, setPrefs] = useState<StudioPreferences>(defaultStudioPreferences);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [testing, setTesting] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [prefMessage, setPrefMessage] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
     setLoadingStatus(true);
@@ -37,14 +45,45 @@ export function GeminiAiPanel() {
   }, []);
 
   useEffect(() => {
+    setPrefs(loadStudioPreferences());
     void loadStatus();
   }, [loadStatus]);
+
+  const selectableModels = useMemo(() => {
+    const set = new Set<string>([
+      ...(status?.allowedModels ?? []),
+      ...(status?.availableFlashModels ?? []),
+    ]);
+    return [...set];
+  }, [status]);
+
+  function updateAiPref(
+    patch: Partial<
+      Pick<
+        StudioPreferences,
+        'preferredGeminiModel' | 'deepAiAnalysisEnabled' | 'requireExternalAiConsent'
+      >
+    >,
+  ) {
+    const res = saveStudioPreferences(patch);
+    setPrefs(res.preferences);
+    setPrefMessage(
+      res.persisted
+        ? 'Настройки AI сохранены и будут применяться при следующем анализе.'
+        : 'Настройки применены в текущей сессии.',
+    );
+  }
 
   async function handleTestConnection() {
     setTesting(true);
     setFetchError(null);
     try {
-      const res = await fetch('/api/ai/gemini/test', { method: 'POST', cache: 'no-store' });
+      const res = await fetch('/api/ai/gemini/test', {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: prefs.preferredGeminiModel || undefined }),
+      });
       const raw = await res.json();
       const parsed = geminiTestResponseSchema.safeParse(raw);
       if (parsed.success) {
@@ -88,10 +127,10 @@ export function GeminiAiPanel() {
     >
       <div className="lf-providers-head">
         <div>
-          <h2 id="lf-gemini-ai-heading">Gemini AI (анализ фото и чертежей / PDF)</h2>
+          <h2 id="lf-gemini-ai-heading">AI Settings · Gemini Vision &amp; PDF</h2>
           <p className="lf-settings-pref-hint">
-            Безопасное серверное подключение через <code>@google/genai</code> и переменную{' '}
-            <code>GEMINI_API_KEY</code>. Секретный ключ не передаётся в браузер и не выводится в логах.
+            Серверное подключение <code>GEMINI_API_KEY</code> через <code>@google/genai</code>,
+            выбор бесплатной Flash-модели, контроль расхода и кеш результатов.
           </p>
         </div>
         <div className="atelier-inline">
@@ -132,57 +171,106 @@ export function GeminiAiPanel() {
           </div>
         </div>
         <div className="lf-storage-kpi">
-          <span className="lf-settings-pref-hint">Выбранная модель</span>
-          <strong id="lf-gemini-model-value" style={{ fontSize: 14 }} className="mono">
-            {status?.selectedModel ?? 'Не выбрана'}
+          <span className="lf-settings-pref-hint">Активная модель</span>
+          <strong id="lf-gemini-model-value" style={{ fontSize: 13.5 }} className="mono">
+            {prefs.preferredGeminiModel || status?.selectedModel || 'Авто (Flash)'}
           </strong>
         </div>
         <div className="lf-storage-kpi">
-          <span className="lf-settings-pref-hint">Доступность модели</span>
+          <span className="lf-settings-pref-hint">Дневной / месячный расход</span>
+          <strong style={{ fontSize: 15 }}>
+            {status
+              ? `${status.requestsToday}/${status.dailyLimit} · ${status.requestsThisMonth}/${status.monthlyLimit}`
+              : '—'}
+          </strong>
+        </div>
+        <div className="lf-storage-kpi">
+          <span className="lf-settings-pref-hint">Лимит стоимости (Cost Limit)</span>
           <div>
-            <span id="lf-gemini-avail-badge" className={`lf-st-pill lf-st-pill--${avail.tone}`}>
-              {avail.label}
-            </span>
+            <span className="lf-st-pill lf-st-pill--good">$0 · Free Tier Only</span>
           </div>
-        </div>
-        <div className="lf-storage-kpi">
-          <span className="lf-settings-pref-hint">Лимит приложения (Free Tier)</span>
-          <strong style={{ fontSize: 16 }}>
-            {status ? `${status.requestsToday} / ${status.dailyLimit}` : '—'}
-          </strong>
         </div>
       </div>
 
-      {status && (
-        <div className="lf-settings-policy-box" style={{ marginBottom: 12 }}>
-          <div className="lf-settings-policy-row">
-            <span>Тарифная политика</span>
-            <span className="lf-st-pill lf-st-pill--good">
-              Free Tier Flash · без авто-биллинга
-            </span>
-          </div>
-          <div className="lf-settings-policy-row">
-            <span>Явный выбор (<code>GEMINI_MODEL</code>)</span>
-            <span className="mono" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>
-              {status.configuredModel ?? 'Автовыбор из разрешённого списка Flash'}
-            </span>
-          </div>
-          <div className="lf-settings-policy-row">
-            <span>Разрешённые Flash-модели</span>
-            <span className="mono" style={{ fontSize: 11.5, overflowWrap: 'anywhere' }}>
-              {status.allowedModels.join(', ')}
-            </span>
-          </div>
-          {status.availableFlashModels.length > 0 && (
-            <div className="lf-settings-policy-row">
-              <span>Обнаружены в вашем аккаунте</span>
-              <span className="mono" style={{ fontSize: 11.5, overflowWrap: 'anywhere' }}>
-                {status.availableFlashModels.slice(0, 6).join(', ')}
-              </span>
-            </div>
-          )}
+      {/* Configurable AI Controls */}
+      <div className="lf-settings-policy-box" style={{ marginBottom: 12 }}>
+        <div className="lf-settings-policy-row">
+          <label htmlFor="lf-gemini-model-select" style={{ fontWeight: 600 }}>
+            Active Vision Model (Free Tier Flash)
+          </label>
+          <select
+            id="lf-gemini-model-select"
+            value={prefs.preferredGeminiModel}
+            style={{
+              minHeight: 34,
+              padding: '4px 10px',
+              borderRadius: 'var(--radius-xs)',
+              border: '1px solid var(--border)',
+              background: 'var(--bg-surface)',
+              maxWidth: '100%',
+            }}
+            onChange={(e) => updateAiPref({ preferredGeminiModel: e.target.value })}
+          >
+            <option value="">Автовыбор (приоритет: gemini-3.8-flash)</option>
+            {selectableModels.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
         </div>
-      )}
+
+        <div className="lf-settings-policy-row">
+          <span>Доступность модели</span>
+          <span id="lf-gemini-avail-badge" className={`lf-st-pill lf-st-pill--${avail.tone}`}>
+            {avail.label}
+          </span>
+        </div>
+
+        <div className="lf-settings-policy-row">
+          <span>Search Provider</span>
+          <span style={{ fontSize: 12 }}>
+            {status?.searchProviderLabel ?? 'Каталог LIGHT FORGE + ручной Google Lens'}
+          </span>
+        </div>
+
+        <div className="lf-settings-policy-row">
+          <span>Кеш результатов анализа (экономия токенов)</span>
+          <span className="mono" style={{ fontSize: 12 }}>
+            Активен ({status?.cacheEntries ?? 0} записей в памяти сервера)
+          </span>
+        </div>
+
+        <label className="lf-settings-policy-row" style={{ cursor: 'pointer' }}>
+          <span>
+            <strong>Deep Analysis Enabled</strong> (детальный разбор узлов, стыков и таблиц чертежа)
+          </span>
+          <input
+            id="lf-gemini-deep-toggle"
+            type="checkbox"
+            checked={prefs.deepAiAnalysisEnabled}
+            onChange={(e) => updateAiPref({ deepAiAnalysisEnabled: e.target.checked })}
+          />
+        </label>
+
+        <label className="lf-settings-policy-row" style={{ cursor: 'pointer' }}>
+          <span>
+            <strong>Конфиденциальность чертежей</strong> (подтверждать отправку во внешний AI перед анализом)
+          </span>
+          <input
+            id="lf-gemini-consent-toggle"
+            type="checkbox"
+            checked={prefs.requireExternalAiConsent}
+            onChange={(e) => updateAiPref({ requireExternalAiConsent: e.target.checked })}
+          />
+        </label>
+
+        {prefMessage && (
+          <span className="lf-settings-pref-hint" role="status">
+            {prefMessage}
+          </span>
+        )}
+      </div>
 
       {status?.lastTest && (
         <div

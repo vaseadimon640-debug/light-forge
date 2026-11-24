@@ -35,6 +35,10 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
+    const rawModel = form.get('model');
+    const modelOverride = typeof rawModel === 'string' && rawModel.trim() ? rawModel.trim().slice(0, 80) : undefined;
+    const deepAnalysis = form.get('deepAnalysis') === '1' || form.get('deepAnalysis') === 'true';
+
     const bytes = new Uint8Array(await entry.arrayBuffer());
     const result = await geminiService.analyzeDrawing(
       {
@@ -43,6 +47,7 @@ export async function POST(request: Request): Promise<Response> {
         bytes,
       },
       request.signal,
+      { modelOverride, deepAnalysis },
     );
     return Response.json(result, { status: 200, headers });
   } catch (error) {

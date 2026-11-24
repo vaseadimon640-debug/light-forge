@@ -15,6 +15,7 @@ import { newProject } from '../src/domain/project.ts';
 import {
   convertLengthToMm,
   createGeminiService,
+  extractPdfTextSnippets,
   GeminiServiceError,
   sanitizeSecret,
   type GeminiSdkAdapter,
@@ -223,9 +224,21 @@ test('quota exceeded (429), daily app cap, and network errors map cleanly', asyn
     }),
   });
 
-  await cappedService.analyzePhoto({ name: 'one.jpg', mimeType: 'image/jpeg', bytes: photoBytes });
+  const first = await cappedService.analyzePhoto({ name: 'one.jpg', mimeType: 'image/jpeg', bytes: photoBytes });
+  assert.equal(first.cached, false);
+  // Repeating identical photo hits SHA-256 cache without consuming additional daily quota!
+  const secondCached = await cappedService.analyzePhoto({ name: 'one.jpg', mimeType: 'image/jpeg', bytes: photoBytes });
+  assert.equal(secondCached.cached, true);
+  assert.equal(cappedService.getStatus().requestsToday, 1);
+
+  // Distinct photo consumes new call and hits daily cap
+  const distinctBytes = new Uint8Array(
+    await sharp({ create: { width: 64, height: 64, channels: 3, background: { r: 220, g: 190, b: 140 } } })
+      .jpeg({ quality: 85 })
+      .toBuffer(),
+  );
   await assert.rejects(
-    () => cappedService.analyzePhoto({ name: 'two.jpg', mimeType: 'image/jpeg', bytes: photoBytes }),
+    () => cappedService.analyzePhoto({ name: 'two.jpg', mimeType: 'image/jpeg', bytes: distinctBytes }),
     (err: unknown) => err instanceof GeminiServiceError && err.code === 'daily_limit_reached' && err.httpStatus === 429,
   );
 });
@@ -420,3 +433,93 @@ test('Gemini HTTP route handlers enforce no-store, CSRF cross-site guard, and co
   );
   assert.equal(wrongMimeDrawing.status, 415);
 });
+
+test('Phase 2 prioritizes gemini-3.8-flash, extracts PDF text snippets, preserves page provenance, separates suspensionDrop, and flags dimension conflicts', async () => {
+  const pdfWithSpecText = new Uint8Array(
+    Buffer.from(
+      '%PDF-1.4\n(MYLINE ICBA02 Width 900 mm) Tj\n(Height 700 mm Suspension Drop 1500 mm) Tj\n(3000K CRI 90 DALI IP20 59W) Tj\n%%EOF\n',
+      'ascii',
+    ),
+  );
+  const extracted = extractPdfTextSnippets(pdfWithSpecText);
+  assert.match(extracted, /900 mm/);
+  assert.match(extracted, /DALI/);
+
+  let receivedPrompt = '';
+  let usedModel = '';
+  const service = createGeminiService({
+    getEnv: () => ({ GEMINI_API_KEY: 'test-key-123456' }),
+    createAdapter: (): GeminiSdkAdapter => ({
+      async listModels() {
+        return [
+          { name: 'models/gemini-3.5-flash-lite', supportedActions: ['generateContent'] },
+          { name: 'models/gemini-3.8-flash', supportedActions: ['generateContent'] },
+        ];
+      },
+      async generateJson({ model, prompt }) {
+        usedModel = model;
+        receivedPrompt = prompt;
+        return JSON.stringify({
+          modelName: { value: 'MYLINE', originalText: 'MYLINE', page: 1, status: 'confirmed' },
+          sku: { value: 'ICBA02', originalText: 'ICBA02', page: 1, status: 'confirmed' },
+          width: { value: 900, unit: 'mm', originalText: 'L 900 mm', page: 2, snippet: 'L 900 mm', dimensionLabel: 'Width', confidence: 'high', status: 'confirmed' },
+          height: { value: 700, unit: 'mm', originalText: 'H 700 mm', page: 2, snippet: 'H 700 mm', status: 'confirmed' },
+          depth: { value: 60, unit: 'mm', originalText: '60 mm', page: 2, status: 'confirmed' },
+          diameter: { value: 900, unit: 'mm', originalText: 'Ø900', page: 2, status: 'confirmed' },
+          innerDiameter: { value: 920, unit: 'mm', originalText: 'Ø920', page: 2, status: 'confirmed' },
+          profileHeight: { value: null, unit: null, originalText: null, status: 'unknown' },
+          profileThickness: { value: null, unit: null, originalText: null, status: 'unknown' },
+          radius: { value: 450, unit: 'mm', originalText: 'R450', page: 2, status: 'confirmed' },
+          suspensionDrop: { value: 1500, unit: 'mm', originalText: 'Drop 1500 mm', page: 2, status: 'confirmed' },
+          elementCount: { value: 4, originalText: '4 arcs', page: 1, status: 'confirmed' },
+          mountingPointsCount: { value: 8, originalText: '8 ceiling fixings', page: 2, status: 'confirmed' },
+          angles: ['180° U-arc'],
+          sections: ['60×40 mm'],
+          wattageW: { value: 59, originalText: '59W', page: 1, status: 'confirmed' },
+          lumensLm: { value: 4779, originalText: '4779 lm', page: 1, status: 'confirmed' },
+          cctK: { value: 3000, originalText: '3000K', page: 1, status: 'confirmed' },
+          cri: { value: 90, originalText: 'CRI 90', page: 1, status: 'confirmed' },
+          voltage: { value: '220–240V AC', originalText: '220-240V', page: 1, status: 'confirmed' },
+          ipRating: { value: 'IP20', originalText: 'IP20', page: 1, status: 'confirmed' },
+          dimming: { value: 'DALI', originalText: 'DALI', page: 1, status: 'confirmed' },
+          materials: [],
+          finishes: [],
+          conflicts: [],
+          missingInformation: ['Высота стола от пола (мм)'],
+          documentNotes: [],
+          warnings: [],
+          summary: 'Извлечены габариты и электрика MYLINE.',
+        });
+      },
+    }),
+  });
+
+  const drawing = geminiDrawingAnalysisSchema.parse(
+    await service.analyzeDrawing(
+      { name: 'drawing.pdf', mimeType: 'application/pdf', bytes: pdfWithSpecText },
+      undefined,
+      { deepAnalysis: true },
+    ),
+  );
+  assert.equal(usedModel, 'gemini-3.8-flash');
+  assert.match(receivedPrompt, /900 mm/);
+  assert.equal(drawing.identity.sku.value, 'ICBA02');
+  assert.equal(drawing.dimensionsMm.width.provenance?.fileName, 'drawing.pdf');
+  assert.equal(drawing.dimensionsMm.width.provenance?.page, 2);
+  assert.equal(drawing.dimensionsMm.width.provenance?.snippet, 'L 900 mm');
+  assert.equal(drawing.dimensionsMm.height.value, 700);
+  assert.equal(drawing.dimensionsMm.suspensionDrop.value, 1500);
+  assert.equal(drawing.dimensionsMm.radius.value, 450);
+  // Automatic conflict detection when innerDiameter (920) >= diameter (900)
+  assert.ok(drawing.conflicts.some((c) => c.field === 'diameter'));
+
+  // Second call hits cache -> 0 extra API calls!
+  const cachedDrawing = await service.analyzeDrawing(
+    { name: 'drawing.pdf', mimeType: 'application/pdf', bytes: pdfWithSpecText },
+    undefined,
+    { deepAnalysis: true },
+  );
+  assert.equal(cachedDrawing.cached, true);
+  assert.equal(service.getStatus().requestsThisMonth, 1);
+});
+

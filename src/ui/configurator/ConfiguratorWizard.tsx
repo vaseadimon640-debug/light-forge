@@ -6,7 +6,9 @@ import { useSearchParams } from 'next/navigation';
 import type { GeminiDrawingAnalysis, GeminiPhotoAnalysis } from '@/ai/gemini-contract';
 import { createMyline } from '@/domain/myline';
 import { newProject, projectSchema, type Project } from '@/domain/project';
+import { loadStudioPreferences } from '@/storage/preferences';
 import { openProjectStore, type ProjectSnapshot } from '@/storage/projects';
+import { projectFromSearch, searchResponseSchema, type SearchResult } from '@/visual-search/catalogue';
 import {
   applyGeminiProposals,
   buildDrawingProposals,
@@ -16,9 +18,9 @@ import {
   requestGeminiPhotoAnalysis,
 } from '../quick-rfq/geminiAutofill';
 import { removePhotoFromSnapshot, setPrimaryPhoto } from '../quick-rfq/helpers';
+import { DimensionsStage } from './DimensionsStage';
 import { UploadStage } from './UploadStage';
 import {
-  DimensionsStage,
   InstallationStage,
   LightingStage,
   MaterialsStage,
@@ -49,11 +51,15 @@ export function ConfiguratorWizard() {
 
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
   const [searchOriginals, setSearchOriginals] = useState(false);
+  const [requireConsent, setRequireConsent] = useState(true);
+  const [consentGranted, setConsentGranted] = useState(true);
+
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisStageText, setAnalysisStageText] = useState<string | null>(null);
   const [analysisError, setAnalysisError] = useState<{ code: string; message: string } | null>(null);
   const [aiPhoto, setAiPhoto] = useState<GeminiPhotoAnalysis | null>(null);
   const [aiDrawing, setAiDrawing] = useState<GeminiDrawingAnalysis | null>(null);
+  const [originalMatches, setOriginalMatches] = useState<SearchResult[]>([]);
   const [installationMode, setInstallationMode] = useState<'standard' | 'advanced'>('standard');
 
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -62,6 +68,19 @@ export function ConfiguratorWizard() {
 
   const project = history.present;
   const snapshot: ProjectSnapshot = useMemo(() => ({ project, originals }), [project, originals]);
+
+  useEffect(() => {
+    const prefs = loadStudioPreferences();
+    setRequireConsent(prefs.requireExternalAiConsent);
+    // Keep explicit unchecked default if commercial PDF drawing is uploaded, or pre-allow once user toggles
+    setConsentGranted(!prefs.requireExternalAiConsent);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+  }, [step]);
 
   // Object URLs for uploaded photos (revoked cleanly on change/unmount)
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
@@ -240,11 +259,48 @@ export function ConfiguratorWizard() {
     setDrawings([]);
     setAiPhoto(null);
     setAiDrawing(null);
+    setOriginalMatches([]);
     setManualFields(new Set());
     setInstallationMode('advanced');
     setHistory(createWizardHistory(myline));
     setStep('dimensions');
   }, []);
+
+  const handleImportCatalogueResult = useCallback(
+    (result: SearchResult, sku?: string) => {
+      const variant = sku
+        ? result.variants?.find((v) => v.sku === sku)
+        : result.variants?.[0];
+      const imported = projectFromSearch(result, variant).project;
+      const importedComp = imported.components[0];
+
+      handleUpdateProject((p) => {
+        const comp = p.components[0];
+        const nextDims = { ...comp.dimensions };
+        for (const [k, v] of Object.entries(importedComp.dimensions)) {
+          if (v && !manualFields.has(`dim:${k}`)) {
+            nextDims[k as keyof typeof nextDims] = v;
+          }
+        }
+        const nextLight = { ...comp.light };
+        if (importedComp.light.dimming && !manualFields.has('light:dimming')) {
+          nextLight.dimming = importedComp.light.dimming;
+        }
+        return {
+          ...p,
+          name:
+            !manualFields.has('name') && (p.name === 'Новый светильник' || !p.name.trim())
+              ? imported.name
+              : p.name,
+          code: !manualFields.has('code') && imported.code ? imported.code : p.code,
+          components: p.components.map((item, idx) =>
+            idx === 0 ? { ...item, dimensions: nextDims, light: nextLight } : item,
+          ),
+        };
+      });
+    },
+    [handleUpdateProject, manualFields],
+  );
 
   const handleRecognizeAndFill = useCallback(async () => {
     const primaryPhoto =
@@ -278,11 +334,44 @@ export function ConfiguratorWizard() {
         setAnalysisStageText(`Чтение технического чертежа «${firstDrawing.name}»…`);
         nextDrawingRes = await requestGeminiDrawingAnalysis(firstDrawing.file);
         setAiDrawing(nextDrawingRes);
-        const drawingProposals = buildDrawingProposals(workingProject, nextDrawingRes);
+        const drawingProposals = buildDrawingProposals(workingProject, nextDrawingRes, manualFields);
         const safeAutoIds = new Set(
           drawingProposals.filter((item) => item.defaultChecked).map((item) => item.id),
         );
         workingProject = applyGeminiProposals(workingProject, drawingProposals, safeAutoIds).project;
+      }
+
+      if (searchOriginals) {
+        const searchTerms = [
+          nextDrawingRes?.identity.sku.value,
+          nextDrawingRes?.identity.modelName.value,
+          nextPhotoRes?.possibleBrand.value,
+          nextPhotoRes?.possibleCollection.value,
+          nextPhotoRes?.shape.value,
+          nextPhotoRes?.suspectedMaterial.label,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+
+        if (searchTerms) {
+          setAnalysisStageText('Отдельный поиск по каталогу оригиналов и спецификаций…');
+          try {
+            const searchRes = await fetch('/api/visual-search', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query: searchTerms.slice(0, 120), mode: 'deep' }),
+            });
+            if (searchRes.ok) {
+              const parsedSearch = searchResponseSchema.safeParse(await searchRes.json());
+              if (parsedSearch.success) {
+                setOriginalMatches(parsedSearch.data.results);
+              }
+            }
+          } catch {
+            // Non-fatal: catalogue search failure does not discard Gemini analysis
+          }
+        }
       }
 
       if (workingProject !== project) {
@@ -304,7 +393,7 @@ export function ConfiguratorWizard() {
       setAnalyzing(false);
       setAnalysisStageText(null);
     }
-  }, [aiDrawing, aiPhoto, drawings, manualFields, originals, project]);
+  }, [aiDrawing, aiPhoto, drawings, manualFields, originals, project, searchOriginals]);
 
   const badges = useMemo(
     () => computeStepBadges(project, drawings.length),
@@ -313,7 +402,6 @@ export function ConfiguratorWizard() {
 
   return (
     <div className="lfw-shell" data-wizard-step={step}>
-      {/* Slim Top Bar with Autosave + Undo/Redo */}
       <header className="lfw-topbar">
         <div className="lfw-topbar-left">
           <span className="lfw-project-pill" title={project.name}>
@@ -366,7 +454,6 @@ export function ConfiguratorWizard() {
         </div>
       </header>
 
-      {/* Clean 6-Step Progress Stepper */}
       <nav className="lfw-stepper-wrap" aria-label="Этапы создания светильника">
         <ol className="lfw-stepper">
           {WIZARD_STEPS.map((item) => {
@@ -392,7 +479,6 @@ export function ConfiguratorWizard() {
         </ol>
       </nav>
 
-      {/* Single Active Stage Canvas */}
       <main className="lfw-stage-container">
         {step === 'upload' && (
           <UploadStage
@@ -402,6 +488,9 @@ export function ConfiguratorWizard() {
             uploadErrors={uploadErrors}
             searchOriginals={searchOriginals}
             onToggleSearchOriginals={setSearchOriginals}
+            requireExternalAiConsent={requireConsent}
+            externalAiConsentGranted={consentGranted}
+            onToggleExternalAiConsent={setConsentGranted}
             analyzing={analyzing}
             analysisStageText={analysisStageText}
             analysisError={analysisError}
@@ -419,8 +508,11 @@ export function ConfiguratorWizard() {
           <DimensionsStage
             project={project}
             photoUrls={photoUrls}
+            drawings={drawings}
             aiPhoto={aiPhoto}
             aiDrawing={aiDrawing}
+            originalMatches={originalMatches}
+            onImportCatalogueResult={handleImportCatalogueResult}
             onUpdateProject={handleUpdateProject}
             onBack={() => setStep('upload')}
             onNext={() => setStep('materials')}
