@@ -83,7 +83,7 @@ export default function Projects() {
         <option value="">Все типы</option>{Object.entries(productTypes).map(([id, [title]]) => <option key={id} value={id}>{title}</option>)}
       </select></label>
       <label className="atelier-field">Сортировка<select className="lf-input" value={sort} onChange={event => setSort(event.target.value)}>
-        <option value="recent">Недавно изменённые</option><option value="title">По названию</option>
+        <option value="recent">По дате</option><option value="title">По названию</option>
       </select></label>
       <label className="atelier-check"><input type="checkbox" checked={favoritesOnly} onChange={event => { setFavoritesOnly(event.target.checked); setLimit(pageSize); }} /> Избранные</label>
       <div className="lf-segment" role="group" aria-label="Вид библиотеки">
