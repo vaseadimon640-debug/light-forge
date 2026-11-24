@@ -888,18 +888,432 @@
   color: #9e2a1f;
 }
 
+/* ============================================================================
+   PHASE 4 — INSTALLATION, PLACEMENTS & 3D REVIEW / RFQ RELEASE
+   ============================================================================ */
+
+.lfw-elev-box {
+  margin-top: 10px;
+  padding: 12px 12px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lfw-elev-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lfw-elev-head strong {
+  font-size: 12.5px;
+  color: var(--ink-primary);
+}
+
+.lfw-elev-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--atelier-edge);
+}
+
+.lfw-elev-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  fill: var(--ink-primary);
+}
+
+.lfw-elev-label--muted {
+  fill: var(--atelier-muted);
+  font-weight: 500;
+}
+
+.lfw-elev-tag {
+  font-size: 9px;
+  font-weight: 650;
+  fill: var(--ink-primary);
+}
+
+.lfw-install-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lfw-placements-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--atelier-edge);
+}
+
+.lfw-placements-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lfw-placement-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lfw-placement-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+  min-width: 0;
+}
+
+.lfw-placement-card--conflict {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+}
+
+.lfw-placement-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lfw-placement-top .lf-select {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.lfw-placement-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  border: 1px solid var(--atelier-edge);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-primary);
+}
+
+.lfw-placement-coords {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--atelier-edge);
+}
+
+.lfw-placement-calc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-surface);
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.lfw-placement-calc--ok {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.lfw-placement-calc--error {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.lfw-preset-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.lfw-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+  color: var(--ink-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: left;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.lfw-chip-btn:hover {
+  border-color: var(--brass-border);
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+}
+
+.lfw-chip-btn--active {
+  border-color: var(--brass);
+  background: var(--atelier-selected);
+  color: var(--ink-primary);
+  font-weight: 550;
+}
+
+/* Stage 6 — Interactive 3D Preview & Factory Review */
+.lfw-review-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lfw-3d-panel {
+  gap: 12px;
+}
+
+.lfw-3d-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lfw-3d-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.lfw-3d-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lfw-3d-viewport {
+  position: relative;
+  width: 100%;
+  height: 360px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--atelier-edge);
+  background: linear-gradient(180deg, #f3f1ec 0%, #eae6dd 100%);
+}
+
+.lfw-3d-viewport canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.lfw-3d-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  color: var(--atelier-muted);
+  font-size: 13px;
+}
+
+.lfw-3d-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 8px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.lfw-3d-legend strong {
+  color: var(--ink-primary);
+}
+
+.lfw-3d-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.lfw-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.lfw-issue-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lfw-issue-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lfw-open-list-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--atelier-edge);
+}
+
+.lfw-open-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lfw-open-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+  font-size: 12.5px;
+  color: var(--ink-primary);
+}
+
+.lfw-open-item > span {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.lfw-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.lfw-export-actions .lf-btn--primary {
+  flex: 1 1 220px;
+}
+
+.lfw-inline-pdf {
+  width: 100%;
+  height: 440px;
+  border: 1px solid var(--atelier-edge);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.lfw-text-preview {
+  border: 1px solid var(--atelier-edge);
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  padding: 10px 12px;
+}
+
+.lfw-text-preview summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.lfw-text-preview pre {
+  margin: 10px 0 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--atelier-edge);
+  font-size: 11.5px;
+  line-height: 1.45;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-primary);
+}
+
+.lfw-handoff-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--atelier-edge);
+}
+
 /* Dark theme adjustments */
+[data-theme='dark'] .lfw-shell {
+  --status-user-bg: #2e3437;
+  --status-user-ink: #dce8ec;
+  --status-doc-bg: #23382e;
+  --status-doc-ink: #a4dfc2;
+  --status-est-bg: #3b2f1f;
+  --status-est-ink: #f0cf9b;
+  --status-unknown-bg: #2f2b26;
+  --status-unknown-ink: #c7baa9;
+  --success: #a4dfc2;
+  --success-soft: #23382e;
+  --success-border: #3b6350;
+  --danger-soft: #3a1f1c;
+  --danger-border: #7c3830;
+}
+
 [data-theme='dark'] .lfw-save-badge--saved,
-[data-theme='dark'] .lfw-diag-row--ok {
+[data-theme='dark'] .lfw-diag-row--ok,
+[data-theme='dark'] .lfw-placement-calc--ok {
   background: #23382e;
   border-color: #3b6350;
   color: #a4dfc2;
 }
 
-[data-theme='dark'] .lfw-diag-row--error {
+[data-theme='dark'] .lfw-diag-row--error,
+[data-theme='dark'] .lfw-placement-card--conflict,
+[data-theme='dark'] .lfw-placement-calc--error {
   background: #3a1f1c;
   border-color: #7c3830;
   color: #f3b5ae;
+}
+
+[data-theme='dark'] .lfw-3d-viewport {
+  background: linear-gradient(180deg, #1b1a18 0%, #141311 100%);
 }
 
 [data-theme='dark'] .lfw-dropzone {
@@ -925,11 +1339,13 @@
     position: static;
   }
 
-  .lfw-summary-kpis {
+  .lfw-summary-kpis,
+  .lfw-install-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .lfw-tier-grid {
+  .lfw-tier-grid,
+  .lfw-review-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -954,9 +1370,32 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .lfw-upload-actions {
+  .lfw-upload-actions,
+  .lfw-export-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .lfw-export-actions .lf-btn--primary {
+    flex: 0 0 auto;
+    width: 100%;
+    white-space: normal;
+    text-align: center;
+    padding: 10px 14px;
+    line-height: 1.3;
+  }
+
+  .lfw-3d-viewport {
+    height: 270px;
+  }
+
+  .lfw-inline-pdf {
+    height: 320px;
+  }
+
+  .lfw-open-item {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .lfw-project-pill {
