@@ -6,6 +6,8 @@ import { useSearchParams } from 'next/navigation';
 import type { GeminiDrawingAnalysis, GeminiPhotoAnalysis } from '@/ai/gemini-contract';
 import { createMyline } from '@/domain/myline';
 import { newProject, projectSchema, type Project } from '@/domain/project';
+import type { Composition } from '@/geometry/schema';
+import { openCompositionStore } from '@/storage/compositions';
 import { loadStudioPreferences } from '@/storage/preferences';
 import { openProjectStore, type ProjectSnapshot } from '@/storage/projects';
 import { projectFromSearch, searchResponseSchema, type SearchResult } from '@/visual-search/catalogue';
@@ -19,10 +21,11 @@ import {
 } from '../quick-rfq/geminiAutofill';
 import { removePhotoFromSnapshot, setPrimaryPhoto } from '../quick-rfq/helpers';
 import { DimensionsStage } from './DimensionsStage';
+import { InstallationStage } from './InstallationStage';
 import { LightingStage } from './LightingStage';
 import { MaterialsStage } from './MaterialsStage';
+import { Review3DStage } from './Review3DStage';
 import { UploadStage } from './UploadStage';
-import { InstallationStage, Review3DStage } from './WizardSecondaryStages';
 import {
   commitWizardProject,
   computeStepBadges,
@@ -58,6 +61,7 @@ export function ConfiguratorWizard() {
   const [aiDrawing, setAiDrawing] = useState<GeminiDrawingAnalysis | null>(null);
   const [originalMatches, setOriginalMatches] = useState<SearchResult[]>([]);
   const [installationMode, setInstallationMode] = useState<'standard' | 'advanced'>('standard');
+  const [linkedComposition, setLinkedComposition] = useState<Composition | undefined>(undefined);
 
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [hydrated, setHydrated] = useState(false);
@@ -97,7 +101,7 @@ export function ConfiguratorWizard() {
     };
   }, [originals, project.photos]);
 
-  // Load requested saved project via ?rfqProject=ID
+  // Load requested saved project via ?rfqProject=ID (along with any linked 3D composition)
   useEffect(() => {
     let active = true;
     async function hydrate() {
@@ -113,12 +117,28 @@ export function ConfiguratorWizard() {
               setInstallationMode(
                 existing.project.mounting.ceilingFromFloorMm ||
                   existing.project.mounting.tabletopFromFloorMm ||
+                  existing.project.mounting.placements.length > 0 ||
                   existing.project.components.length > 1
                   ? 'advanced'
                   : 'standard',
               );
               setSaveState('saved');
               dirtyRef.current = false;
+
+              try {
+                const compStore = await openCompositionStore();
+                try {
+                  const savedComps = await compStore.list();
+                  const linked = savedComps.find(
+                    (item) => item.composition.projectId === existing.project.id,
+                  );
+                  if (active) setLinkedComposition(linked?.composition);
+                } finally {
+                  compStore.close();
+                }
+              } catch {
+                // Linked 3D composition lookup is optional
+              }
             }
           } finally {
             store.close();
@@ -135,11 +155,11 @@ export function ConfiguratorWizard() {
     };
   }, [requestedNew, requestedProjectId]);
 
-  const persistSnapshot = useCallback(async (target: ProjectSnapshot) => {
+  const persistSnapshot = useCallback(async (target: ProjectSnapshot): Promise<boolean> => {
     const valid = projectSchema.safeParse(target.project);
     if (!valid.success) {
       setSaveState('error');
-      return;
+      return false;
     }
     setSaveState('saving');
     try {
@@ -155,8 +175,10 @@ export function ConfiguratorWizard() {
       dirtyRef.current = false;
       setSaveState('saved');
       window.dispatchEvent(new Event('light-forge-project-saved'));
+      return true;
     } catch {
       setSaveState('error');
+      return false;
     }
   }, []);
 
@@ -551,10 +573,11 @@ export function ConfiguratorWizard() {
 
         {step === 'studio3d' && (
           <Review3DStage
-            project={project}
-            photoUrls={photoUrls}
+            snapshot={snapshot}
+            linkedComposition={linkedComposition}
             saving={saveState === 'saving'}
             onSaveProject={() => persistSnapshot(snapshot)}
+            onCompositionLinked={setLinkedComposition}
             onJumpStep={setStep}
             onBack={() => setStep('installation')}
           />
