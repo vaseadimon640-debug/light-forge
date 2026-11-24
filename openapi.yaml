@@ -238,6 +238,106 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PhotoAnalysisError"
+  /api/visual-search:
+    get:
+      operationId: getVisualSearchCapabilities
+      responses:
+        "200":
+          description: Provider availability and local usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VisualSearchCapabilities"
+    post:
+      operationId: searchLightingCatalogue
+      description: Search the source-backed starter catalogue. Free-project Gemini,
+        when enabled and explicitly requested, only suggests visual query terms.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VisualSearchInput"
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - input
+              properties:
+                input:
+                  type: string
+                  description: JSON VisualSearchInput with one photo metadata item
+              patternProperties:
+                ^photo:[A-Za-z0-9_-]{1,64}$:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Catalogue results, manual web query URLs, and usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VisualSearchResponse"
+        "400":
+          description: Invalid body
+        "403":
+          description: Cross-site request rejected
+        "413":
+          description: Upload too large
+        "415":
+          description: Unsupported media type
+        "422":
+          description: Invalid search or photo
+  /api/visual-search/local:
+    get:
+      operationId: getLocalVisualSearchCapabilities
+      responses:
+        "200":
+          description: Availability and indexed reference count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalVisualSearchCapabilities"
+    post:
+      operationId: matchLocalVisualReferences
+      description: Compare one JPEG, PNG or WebP image of up to 5 MiB with the
+        configured local catalogue.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - input
+              properties:
+                input:
+                  type: string
+                  description: JSON object with one photo metadata field,
+                    {photo:{id,name,type,size}}
+              patternProperties:
+                ^photo:[A-Za-z0-9_-]{1,64}$:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Up to five image matches
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalVisualSearchResponse"
+        "400":
+          description: Invalid body
+        "403":
+          description: Cross-site request rejected
+        "413":
+          description: Upload too large
+        "415":
+          description: Unsupported media type
+        "422":
+          description: Invalid photo
+        "503":
+          description: Local index absent or invalid
   /api/health:
     get:
       operationId: health
@@ -4580,6 +4680,395 @@ components:
       required:
         - language
         - text
+      additionalProperties: false
+    VisualSearchInput:
+      type: object
+      properties:
+        query:
+          type: string
+          maxLength: 240
+        mode:
+          type: string
+          enum:
+            - standard
+            - deep
+        photo:
+          type: object
+          properties:
+            id:
+              type: string
+              pattern: ^[a-zA-Z0-9_-]{1,64}$
+            name:
+              type: string
+              minLength: 1
+              maxLength: 255
+            type:
+              type: string
+              enum:
+                - image/jpeg
+                - image/png
+                - image/webp
+            size:
+              type: integer
+              minimum: 1
+              maximum: 12582912
+          required:
+            - id
+            - name
+            - type
+            - size
+          additionalProperties: false
+        runGemini:
+          type: boolean
+      required:
+        - query
+        - mode
+      additionalProperties: false
+    VisualSearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              brand:
+                type: string
+              kind:
+                type: string
+                enum:
+                  - pendant
+                  - chandelier
+                  - ring
+                  - linear
+                  - arc
+                  - wall
+                  - ceiling
+                  - floor
+                  - table
+                  - custom
+              category:
+                type: string
+                enum:
+                  - verified_original
+                  - exact_match
+                  - visual_alternative
+                  - technical_alternative
+                  - unverified
+              evidence:
+                type: string
+                enum:
+                  - manufacturer_catalogue
+                  - catalogue_similarity
+                  - user_link
+              source:
+                type: string
+                maxLength: 2048
+                format: uri
+              documentUrl:
+                type: string
+                maxLength: 2048
+                format: uri
+              details:
+                type: string
+              variants:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    sku:
+                      type: string
+                    widthMm:
+                      type: number
+                      exclusiveMinimum: 0
+                    depthMm:
+                      type: number
+                      exclusiveMinimum: 0
+                    heightMm:
+                      type: number
+                      exclusiveMinimum: 0
+                  required:
+                    - sku
+                    - widthMm
+                    - depthMm
+                    - heightMm
+                  additionalProperties: false
+              confirmedDimming:
+                type: string
+                const: DALI
+              specifications:
+                type: object
+                properties:
+                  designer:
+                    type: string
+                  form:
+                    type: string
+                  materials:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        part:
+                          type: string
+                        material:
+                          type: string
+                      required:
+                        - part
+                        - material
+                      additionalProperties: false
+                  finishes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        part:
+                          type: string
+                        code:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - part
+                        - code
+                        - name
+                      additionalProperties: false
+                  dimensionsReferTo:
+                    type: string
+                  standardMaxBandLengthMm:
+                    type: number
+                    exclusiveMinimum: 0
+                  lighting:
+                    type: object
+                    properties:
+                      sourceType:
+                        type: string
+                      sourceVoltageV:
+                        type: number
+                        exclusiveMinimum: 0
+                      supplyVoltageV:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            min:
+                              type: number
+                              exclusiveMinimum: 0
+                            max:
+                              type: number
+                              exclusiveMinimum: 0
+                          required:
+                            - min
+                            - max
+                          additionalProperties: false
+                      configurations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            ringWidthMm:
+                              type: number
+                              exclusiveMinimum: 0
+                            direction:
+                              type: string
+                              enum:
+                                - up
+                                - down
+                            powerW:
+                              type: number
+                              exclusiveMinimum: 0
+                            netWeightKg:
+                              type: number
+                              exclusiveMinimum: 0
+                            outputs:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  cctK:
+                                    type: number
+                                    exclusiveMinimum: 0
+                                  lumens:
+                                    type: number
+                                    exclusiveMinimum: 0
+                                required:
+                                  - cctK
+                                  - lumens
+                                additionalProperties: false
+                          required:
+                            - ringWidthMm
+                            - direction
+                            - powerW
+                            - netWeightKg
+                            - outputs
+                          additionalProperties: false
+                    required:
+                      - sourceType
+                      - sourceVoltageV
+                      - supplyVoltageV
+                      - configurations
+                    additionalProperties: false
+                additionalProperties: false
+            required:
+              - id
+              - name
+              - category
+              - evidence
+              - source
+            additionalProperties: false
+        links:
+          type: array
+          items:
+            type: object
+            properties:
+              language:
+                type: string
+              url:
+                type: string
+                maxLength: 2048
+                format: uri
+            required:
+              - language
+              - url
+            additionalProperties: false
+        traits:
+          type: array
+          items:
+            type: string
+        warning:
+          type: string
+        gemini:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            requestsToday:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            appDailyLimit:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            providerRemaining:
+              type: "null"
+          required:
+            - enabled
+            - requestsToday
+            - appDailyLimit
+            - providerRemaining
+          additionalProperties: false
+        originalVerified:
+          type: boolean
+          const: false
+        paidEnabled:
+          type: boolean
+          const: false
+      required:
+        - results
+        - links
+        - traits
+        - gemini
+        - originalVerified
+        - paidEnabled
+      additionalProperties: false
+    VisualSearchCapabilities:
+      type: object
+      properties:
+        gemini:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            requestsToday:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            appDailyLimit:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            providerRemaining:
+              type: "null"
+          required:
+            - enabled
+            - requestsToday
+            - appDailyLimit
+            - providerRemaining
+          additionalProperties: false
+        serpApi:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+              const: false
+          required:
+            - enabled
+          additionalProperties: false
+        manualLens:
+          type: boolean
+          const: true
+        paidEnabled:
+          type: boolean
+          const: false
+      required:
+        - gemini
+        - serpApi
+        - manualLens
+        - paidEnabled
+      additionalProperties: false
+    LocalVisualSearchCapabilities:
+      type: object
+      properties:
+        available:
+          type: boolean
+        referenceCount:
+          type: integer
+          minimum: 0
+          maximum: 256
+      required:
+        - available
+        - referenceCount
+      additionalProperties: false
+    LocalVisualSearchResponse:
+      type: object
+      properties:
+        matches:
+          maxItems: 5
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                pattern: ^[a-zA-Z0-9_-]{1,64}$
+              title:
+                type: string
+                minLength: 1
+                maxLength: 180
+              source:
+                type: string
+                maxLength: 2048
+                format: uri
+              match:
+                type: string
+                enum:
+                  - same_file
+                  - similar_image
+            required:
+              - id
+              - title
+              - match
+            additionalProperties: false
+        originalVerified:
+          type: boolean
+          const: false
+      required:
+        - matches
+        - originalVerified
       additionalProperties: false
     PhotoAnalysisInput:
       type: object

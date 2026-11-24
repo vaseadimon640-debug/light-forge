@@ -687,6 +687,15 @@ export function QuickRfqWorkspace({
     [loadSnapshotIntoWorkspace, showToast],
   );
 
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const id = url.searchParams.get('rfqProject');
+    if (!id) return;
+    url.searchParams.delete('rfqProject');
+    window.history.replaceState(window.history.state, '', url);
+    void handleOpenSavedProject(id);
+  }, [handleOpenSavedProject]);
+
   const handleDeleteSavedProject = useCallback(
     async (id: string) => {
       try {
@@ -775,6 +784,7 @@ export function QuickRfqWorkspace({
         </div>
 
         <div className="lf-topbar-actions">
+          <a href="/search" target="_blank" rel="noopener" className="lf-btn lf-btn--sm">AI Search</a>
           <a href="/geometry" target="_blank" rel="noopener" className="lf-btn lf-btn--sm" title="Открыть 3D-конструктор в новой вкладке">
             3D-конструктор
           </a>
