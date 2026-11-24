@@ -192,3 +192,98 @@ export function SparkIcon(props: IconProps) {
     </Icon>
   );
 }
+
+export function EditIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z" />
+    </Icon>
+  );
+}
+
+export function SkipIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m5 5 8 7-8 7V5Z" />
+      <path d="M19 5v14" />
+    </Icon>
+  );
+}
+
+export function SearchIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.8-3.8" />
+    </Icon>
+  );
+}
+
+export function CropIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+      <path d="M18 22V8a2 2 0 0 0-2-2H2" />
+    </Icon>
+  );
+}
+
+export function SlidersIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 7h16M4 17h16" />
+      <circle cx="9" cy="7" r="2.2" fill="var(--bg-surface, #fff)" />
+      <circle cx="15" cy="17" r="2.2" fill="var(--bg-surface, #fff)" />
+    </Icon>
+  );
+}
+
+export function ColumnsIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M12 4v16" />
+    </Icon>
+  );
+}
+
+export function BookmarkIcon({ filled, ...props }: IconProps & { filled?: boolean }) {
+  return (
+    <Icon {...props}>
+      <path
+        d="M6 4h12a1 1 0 0 1 1 1v16l-7-4.5L5 21V5a1 1 0 0 1 1-1Z"
+        fill={filled ? 'currentColor' : 'none'}
+      />
+    </Icon>
+  );
+}
+
+export function ChatIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5c-1.35 0-2.61-.35-3.71-.97L4 19.5l1.47-4.43A7.46 7.46 0 0 1 4.5 11.5 7.5 7.5 0 1 1 20 11.5Z" />
+      <path d="M9 11.5h.01M12.5 11.5h.01M16 11.5h.01" />
+    </Icon>
+  );
+}
+
+export function LensIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2" />
+      <circle cx="12" cy="12" r="3.5" />
+    </Icon>
+  );
+}
+
+export function LayersIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m12 3 9 4.5-9 4.5-9-4.5L12 3Z" />
+      <path d="m3 12 9 4.5 9-4.5" />
+      <path d="m3 16.5 9 4.5 9-4.5" />
+    </Icon>
+  );
+}
+

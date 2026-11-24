@@ -8,12 +8,14 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3000",
     "typecheck": "tsc --noEmit",
-    "openapi": "node --experimental-strip-types scripts/openapi.ts"
+    "openapi": "node --experimental-strip-types scripts/openapi.ts",
+    "visual:index": "node --experimental-strip-types scripts/index-visual-catalogue.ts"
   },
   "keywords": [],
   "author": "",
   "type": "module",
   "dependencies": {
+    "@google/genai": "3.6.1",
     "@react-three/drei": "10.7.9",
     "@react-three/fiber": "9.8.2",
     "idb": "8.0.4",
@@ -22,6 +24,7 @@
     "playwright": "1.65.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
+    "sharp": "0.35.5",
     "three": "0.187.0",
     "zod": "4.6.7"
   },
