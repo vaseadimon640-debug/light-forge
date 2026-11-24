@@ -10,6 +10,15 @@ export interface PhotoAnalysisEngine {
   analyze(photos: readonly OriginalPhoto[], signal: AbortSignal): Promise<unknown>;
 }
 
+export class PhotoAnalysisEngineUnavailable extends Error {
+  readonly code: 'engine_busy' | 'engine_unavailable' | 'engine_timeout';
+
+  constructor(code: PhotoAnalysisEngineUnavailable['code'], message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 const noStore = { 'Cache-Control': 'no-store' };
 
 function problem(status: number, error: string, message: string) {
@@ -73,7 +82,8 @@ export function createPhotoAnalysisHandlers(engine?: PhotoAnalysisEngine) {
           suggestions: parsed.data.suggestions.map(suggestion => ({ ...suggestion, source: 'estimated' })),
         };
         return Response.json(result, { headers: noStore });
-      } catch {
+      } catch (error) {
+        if (error instanceof PhotoAnalysisEngineUnavailable) return problem(503, error.code, error.message);
         return problem(502, 'engine_error', 'The analysis engine could not process the selected photos.');
       }
     } catch (error) {
