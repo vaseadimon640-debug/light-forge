@@ -1,0 +1,520 @@
+/* ==========================================================================
+   LIGHT FORGE — Phase 7 Settings, Live Providers & Suppliers Workspace
+   Cohesive Atelier Light & Dark design tokens, 0px horizontal overflow.
+   ========================================================================== */
+
+.lf-settings-page {
+  max-width: 1240px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.lf-settings-page > * {
+  min-width: 0;
+}
+
+.lf-settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lf-settings-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.lf-settings-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.lf-settings-pref-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--atelier-edge);
+}
+
+.lf-settings-pref-row:first-of-type {
+  padding-top: 2px;
+}
+
+.lf-settings-pref-row:last-of-type {
+  border-bottom: 0;
+  padding-bottom: 2px;
+}
+
+.lf-settings-pref-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lf-settings-pref-label strong {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.lf-settings-pref-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--atelier-muted);
+  line-height: 1.45;
+}
+
+.lf-settings-policy-box {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+}
+
+.lf-settings-policy-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Provider cards */
+.lf-providers-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.lf-providers-head h2 {
+  margin: 0;
+}
+
+.lf-providers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 12px;
+}
+
+.lf-provider-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+  min-width: 0;
+}
+
+.lf-provider-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lf-provider-top h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.lf-provider-endpoint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--atelier-muted);
+}
+
+.lf-provider-summary {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  line-height: 1.45;
+}
+
+.lf-provider-details {
+  margin: 0;
+  padding-inline-start: 16px;
+  display: grid;
+  gap: 3px;
+  font-size: 11.5px;
+  color: var(--atelier-muted);
+}
+
+/* Status pills */
+.lf-st-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.lf-st-pill--active,
+.lf-st-pill--good {
+  background: var(--success-soft);
+  color: var(--success);
+  border: 1px solid var(--success-border);
+}
+
+.lf-st-pill--info {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+}
+
+.lf-st-pill--standby,
+.lf-st-pill--warn {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border: 1px solid var(--warning-border);
+}
+
+.lf-st-pill--disabled,
+.lf-st-pill--neutral {
+  background: var(--bg-muted);
+  color: var(--ink-secondary);
+  border: 1px solid var(--border);
+}
+
+.lf-st-pill--error,
+.lf-st-pill--danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
+}
+
+/* Local IndexedDB Inventory KPIs */
+.lf-storage-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lf-storage-kpi {
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lf-storage-kpi strong {
+  font-size: 22px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.lf-storage-kpi span {
+  font-size: 12px;
+  color: var(--atelier-muted);
+}
+
+/* Suppliers workspace */
+.lf-suppliers-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.5fr) minmax(160px, 1fr) minmax(140px, 0.8fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.lf-suppliers-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lf-suppliers-form {
+  display: grid;
+  gap: 14px;
+}
+
+.lf-suppliers-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.lf-suppliers-form-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.lf-suppliers-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.lf-suppliers-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.lf-suppliers-field input,
+.lf-suppliers-field select,
+.lf-suppliers-field textarea {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+  font-size: 13px;
+}
+
+.lf-suppliers-field textarea {
+  min-height: 68px;
+  resize: vertical;
+}
+
+.lf-suppliers-alert {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* Comparison table */
+.lf-suppliers-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--atelier-edge);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
+.lf-suppliers-table {
+  width: 100%;
+  min-width: 780px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.lf-suppliers-table th,
+.lf-suppliers-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--atelier-edge);
+  vertical-align: top;
+}
+
+.lf-suppliers-table th {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--atelier-muted);
+  background: var(--bg-subtle);
+  white-space: nowrap;
+}
+
+.lf-suppliers-table tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Supplier response cards & history */
+.lf-supplier-cards {
+  display: grid;
+  gap: 12px;
+}
+
+.lf-supplier-card {
+  border: 1px solid var(--atelier-edge);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.lf-supplier-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.lf-supplier-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.lf-supplier-card-title h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.lf-supplier-meta-line {
+  font-size: 12px;
+  color: var(--atelier-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lf-supplier-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  gap: 8px;
+}
+
+.lf-supplier-metric {
+  padding: 8px 10px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lf-supplier-metric span {
+  font-size: 11px;
+  color: var(--atelier-muted);
+}
+
+.lf-supplier-metric strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lf-supplier-history {
+  border-top: 1px solid var(--atelier-edge);
+  padding-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.lf-supplier-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.lf-supplier-history-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.lf-supplier-history-add {
+  display: grid;
+  grid-template-columns: 165px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.lf-supplier-history-add select,
+.lf-supplier-history-add input {
+  min-height: 34px;
+  padding: 5px 9px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+  font-size: 12.5px;
+}
+
+.lf-supplier-empty {
+  padding: 20px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-strong);
+  background: var(--bg-subtle);
+  text-align: center;
+  color: var(--atelier-muted);
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+/* Dark theme status pill contrast */
+[data-theme='dark'] .lf-st-pill--active,
+[data-theme='dark'] .lf-st-pill--good {
+  background: #23382e;
+  color: #a4dfc2;
+  border-color: #3b6350;
+}
+
+[data-theme='dark'] .lf-st-pill--standby,
+[data-theme='dark'] .lf-st-pill--warn {
+  background: #3b2f1f;
+  color: #f2cb8f;
+  border-color: #6e5635;
+}
+
+[data-theme='dark'] .lf-st-pill--error,
+[data-theme='dark'] .lf-st-pill--danger,
+[data-theme='dark'] .lf-suppliers-alert {
+  background: #3a2321;
+  color: #ffb5aa;
+  border-color: #6c3d38;
+}
+
+@media (max-width: 1024px) {
+  .lf-settings-grid-2,
+  .lf-suppliers-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lf-storage-kpis,
+  .lf-suppliers-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lf-suppliers-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .lf-settings-grid-3,
+  .lf-suppliers-form-grid-2,
+  .lf-suppliers-toolbar,
+  .lf-supplier-history-add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lf-storage-kpis,
+  .lf-suppliers-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

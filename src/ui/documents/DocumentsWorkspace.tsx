@@ -17,6 +17,7 @@ import {
   type DocumentRevisionMeta,
   type DocumentStatus,
 } from '@/storage/documents';
+import { loadStudioPreferences } from '@/storage/preferences';
 import { exportProject, openProjectStore, type ProjectSnapshot } from '@/storage/projects';
 import {
   AlertIcon,
@@ -87,6 +88,12 @@ export function DocumentsWorkspace() {
   const [language, setLanguage] = useState<RfqLanguage>('en-zh');
   const [activeTab, setActiveTab] = useState<'sheet' | 'pdf' | 'text'>('sheet');
   const [releaseNote, setReleaseNote] = useState('');
+
+  useEffect(() => {
+    const prefs = loadStudioPreferences();
+    setTier(prefs.defaultRfqTier);
+    setLanguage(prefs.defaultRfqLanguage);
+  }, []);
 
   // Version history state (IndexedDB)
   const [revisions, setRevisions] = useState<DocumentRevisionMeta[]>([]);
@@ -1310,6 +1317,13 @@ export function DocumentsWorkspace() {
                         >
                           Открыть
                         </button>
+                        <a
+                          className="lf-btn lf-btn--sm lf-btn--subtle"
+                          href={`/settings?tab=suppliers&rfqProject=${encodeURIComponent(item.projectId)}&revisionId=${encodeURIComponent(item.id)}`}
+                          title="Записать КП или ответ фабрики по этой версии"
+                        >
+                          Фабрика
+                        </a>
                         <button
                           type="button"
                           className="lf-btn lf-btn--sm lf-btn--subtle"
