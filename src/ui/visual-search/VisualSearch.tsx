@@ -16,6 +16,11 @@ import {
   type SearchUsage,
 } from '@/visual-search/catalogue';
 import {
+  localSearchCapabilitiesSchema,
+  localSearchResponseSchema,
+  maxLocalPhotoBytes,
+} from '@/visual-search/local-contract';
+import {
   AlertIcon,
   BookmarkIcon,
   BrandMarkIcon,
@@ -43,8 +48,13 @@ import {
   isFullCrop,
   mergeSearchResults,
   readResultSpecifications,
+  resolveLocalMatchResult,
+  shouldUseOriginalForLocalSearch,
   type CropRect,
+  type LocalSearchCapabilities,
+  type LocalSearchResponse,
 } from './helpers';
+import { LocalMatchesSection } from './LocalMatchesSection';
 import { PhotoCropStage } from './PhotoCropStage';
 import { ResultCard } from './ResultCard';
 import { ChatGptDrawer, LensDrawer, SettingsDrawer } from './VisualSearchDrawers';
@@ -84,6 +94,16 @@ function triggerDownload(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+async function encodeCanvasJpeg(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob(
+      value => (value ? resolve(value) : reject(new Error('Не удалось создать копию изображения.'))),
+      'image/jpeg',
+      quality,
+    ),
+  );
+}
+
 async function createOptimizedPhoto(file: File, crop: CropRect): Promise<File> {
   const bitmap = await createImageBitmap(file);
   try {
@@ -106,13 +126,10 @@ async function createOptimizedPhoto(file: File, crop: CropRect): Promise<File> {
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(bitmap, x, y, width, height, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob(
-        value => (value ? resolve(value) : reject(new Error('Не удалось создать копию изображения.'))),
-        'image/jpeg',
-        0.86,
-      ),
-    );
+    let blob = await encodeCanvasJpeg(canvas, 0.86);
+    if (blob.size > maxLocalPhotoBytes) {
+      blob = await encodeCanvasJpeg(canvas, 0.72);
+    }
     return new File([blob], 'light-forge-search.jpg', { type: 'image/jpeg' });
   } finally {
     bitmap.close();
@@ -130,10 +147,13 @@ export function VisualSearch() {
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<SearchInput['mode']>('standard');
   const [gemini, setGemini] = useState<SearchUsage | undefined>();
+  const [localCapabilities, setLocalCapabilities] = useState<LocalSearchCapabilities | undefined>();
   const [allowGemini, setAllowGemini] = useState(false);
 
-  // Real API results, imported links, local library & history
+  // Real API results, local photo matches, imported links, library & history
   const [lastResponse, setLastResponse] = useState<SearchResponse | undefined>();
+  const [localResponse, setLocalResponse] = useState<LocalSearchResponse | undefined>();
+  const [localUsedCrop, setLocalUsedCrop] = useState(false);
   const [imported, setImported] = useState<SearchResult[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const [saved, setSaved] = useState<ReviewLink[]>([]);
@@ -180,6 +200,17 @@ export function VisualSearch() {
       })
       .catch(() => undefined);
 
+    fetch('/api/visual-search/local', { signal: controller.signal })
+      .then(response => (response.ok ? response.json() : null))
+      .then(data => {
+        if (controller.signal.aborted || !data) return;
+        const parsed = localSearchCapabilitiesSchema.safeParse(data);
+        if (parsed.success) {
+          setLocalCapabilities(parsed.data);
+        }
+      })
+      .catch(() => undefined);
+
     return () => {
       controller.abort();
       searchAbortRef.current?.abort();
@@ -203,12 +234,37 @@ export function VisualSearch() {
   );
   const sections = useMemo(() => groupSearchResults(results), [results]);
 
+  const localLinkedResults = useMemo(() => {
+    const map = new Map<string, SearchResult>();
+    for (const match of localResponse?.matches ?? []) {
+      const linked = resolveLocalMatchResult(match);
+      if (linked && !map.has(linked.id)) {
+        map.set(linked.id, linked);
+      }
+    }
+    return [...map.values()];
+  }, [localResponse]);
+
+  const allComparableResults = useMemo(
+    () => mergeSearchResults(results, localLinkedResults),
+    [results, localLinkedResults],
+  );
+
+  const documentationItems = useMemo(
+    () =>
+      mergeSearchResults(
+        sections.documentation,
+        groupSearchResults(localLinkedResults).documentation,
+      ),
+    [sections.documentation, localLinkedResults],
+  );
+
   const comparedItems = useMemo(
     () =>
       compareIds
-        .map(id => results.find(item => item.id === id))
+        .map(id => allComparableResults.find(item => item.id === id))
         .filter((item): item is SearchResult => Boolean(item)),
-    [compareIds, results],
+    [compareIds, allComparableResults],
   );
 
   useEffect(() => {
@@ -240,7 +296,9 @@ export function VisualSearch() {
     return set;
   }, [saved]);
 
-  const hasResultsArea = Boolean(lastResponse || imported.length > 0);
+  const hasLocalMatches = (localResponse?.matches.length ?? 0) > 0;
+  const hasResultsArea = Boolean(lastResponse || localResponse || imported.length > 0);
+  const hasAnyMatches = results.length > 0 || hasLocalMatches;
   const geminiWarningText = formatGeminiWarning(lastResponse?.warning);
 
   function resetPhotoSearch() {
@@ -248,6 +306,8 @@ export function VisualSearch() {
     setLoading(false);
     setAllowGemini(false);
     setLastResponse(undefined);
+    setLocalResponse(undefined);
+    setLocalUsedCrop(false);
   }
 
   function choosePhoto(files: FileList | null) {
@@ -279,7 +339,12 @@ export function VisualSearch() {
   }
 
   const runSearch = useCallback(
-    async (targetQuery = query, targetMode = mode, photoConsent = false) => {
+    async (
+      targetQuery = query,
+      targetMode = mode,
+      photoConsent = false,
+      runLocalPhoto = false,
+    ) => {
       if (!targetQuery.trim() && !photo) return;
 
       searchAbortRef.current?.abort();
@@ -288,48 +353,116 @@ export function VisualSearch() {
 
       setLoading(true);
       setNotice('');
+      // Gemini photo consent is strictly single-use per main form submission (PR #13).
       setAllowGemini(false);
       try {
         const shouldRunGemini = Boolean(gemini?.enabled && photoConsent && photo);
-        const input: SearchInput = {
-          query: targetQuery,
-          mode: targetMode,
-          runGemini: shouldRunGemini,
-        };
+        const shouldRunLocal = Boolean(runLocalPhoto && localCapabilities?.available && photo);
 
-        let requestInit: RequestInit;
-        if (shouldRunGemini && photo) {
-          const copy = await createOptimizedPhoto(photo, crop);
-          input.photo = {
-            id: 'selected-photo',
-            name: copy.name,
-            type: 'image/jpeg',
-            size: copy.size,
-          };
+        // Local photo search runs offline without external AI APIs or Gemini consent.
+        const localTask = (async () => {
+          if (!shouldRunLocal || !photo) return;
+          const useOriginal = shouldUseOriginalForLocalSearch(photo, crop);
+          const localFile = useOriginal ? photo : await createOptimizedPhoto(photo, crop);
+          if (controller.signal.aborted) return;
+
           const form = new FormData();
-          form.set('input', JSON.stringify(input));
-          form.set('photo:selected-photo', copy, copy.name);
-          requestInit = { method: 'POST', body: form, signal: controller.signal };
-        } else {
-          requestInit = {
+          form.set(
+            'input',
+            JSON.stringify({
+              photo: {
+                id: 'query',
+                name: localFile.name,
+                type: localFile.type,
+                size: localFile.size,
+              },
+            }),
+          );
+          form.set('photo:query', localFile, localFile.name);
+
+          const res = await fetch('/api/visual-search/local', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(input),
+            body: form,
             signal: controller.signal,
+          });
+          if (controller.signal.aborted) return;
+          if (res.status === 503) {
+            setLocalCapabilities({ available: false, referenceCount: 0 });
+            setLocalResponse(undefined);
+            setLocalUsedCrop(false);
+            return;
+          }
+          if (!res.ok) {
+            throw new Error('Локальный фотопоиск не смог обработать изображение.');
+          }
+          const parsedLocal = localSearchResponseSchema.parse(await res.json());
+          if (controller.signal.aborted) return;
+          setLocalResponse(parsedLocal);
+          setLocalUsedCrop(!useOriginal);
+        })();
+
+        const mainTask = (async () => {
+          const input: SearchInput = {
+            query: targetQuery,
+            mode: targetMode,
+            runGemini: shouldRunGemini,
           };
-        }
 
-        const response = await fetch('/api/visual-search', requestInit);
+          let requestInit: RequestInit;
+          if (shouldRunGemini && photo) {
+            const copy = await createOptimizedPhoto(photo, crop);
+            if (controller.signal.aborted) return;
+            input.photo = {
+              id: 'selected-photo',
+              name: copy.name,
+              type: 'image/jpeg',
+              size: copy.size,
+            };
+            const form = new FormData();
+            form.set('input', JSON.stringify(input));
+            form.set('photo:selected-photo', copy, copy.name);
+            requestInit = { method: 'POST', body: form, signal: controller.signal };
+          } else {
+            requestInit = {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(input),
+              signal: controller.signal,
+            };
+          }
+
+          const response = await fetch('/api/visual-search', requestInit);
+          if (controller.signal.aborted) return;
+          if (!response.ok) {
+            throw new Error('Не удалось выполнить поиск. Проверьте запрос и попробуйте ещё раз.');
+          }
+
+          const data = searchResponseSchema.parse(await response.json());
+          if (controller.signal.aborted) return;
+
+          setLastResponse(data);
+          setGemini(data.gemini);
+        })();
+
+        const [mainOutcome, localOutcome] = await Promise.allSettled([mainTask, localTask]);
         if (controller.signal.aborted) return;
-        if (!response.ok) {
-          throw new Error('Не удалось выполнить поиск. Проверьте запрос и попробуйте ещё раз.');
+
+        if (mainOutcome.status === 'rejected' && localOutcome.status === 'rejected') {
+          throw mainOutcome.reason;
         }
-
-        const data = searchResponseSchema.parse(await response.json());
-        if (controller.signal.aborted) return;
-
-        setLastResponse(data);
-        setGemini(data.gemini);
+        if (mainOutcome.status === 'rejected') {
+          showNotice(
+            mainOutcome.reason instanceof Error
+              ? mainOutcome.reason.message
+              : 'Поиск по каталогу временно недоступен.',
+          );
+        } else if (localOutcome.status === 'rejected') {
+          showNotice(
+            localOutcome.reason instanceof Error
+              ? localOutcome.reason.message
+              : 'Локальный фотопоиск не завершился.',
+          );
+        }
 
         const cleanTerm = targetQuery.trim();
         if (cleanTerm) {
@@ -352,20 +485,27 @@ export function VisualSearch() {
         }
       }
     },
-    [crop, gemini?.enabled, mode, photo, query, showNotice],
+    [crop, gemini?.enabled, localCapabilities?.available, mode, photo, query, showNotice],
   );
 
   function handleSearchSubmit(event: FormEvent) {
     event.preventDefault();
-    void runSearch(query, mode, allowGemini);
+    void runSearch(query, mode, allowGemini, true);
   }
 
   function handleFindSimilar(result: SearchResult) {
     const similarQuery = buildSimilarQuery(result);
     setQuery(similarQuery);
     setMode('deep');
-    void runSearch(similarQuery, 'deep');
+    void runSearch(similarQuery, 'deep', false, false);
     showNotice(`Ищем похожие модели по запросу «${similarQuery}»…`);
+  }
+
+  function handleSearchByTitle(title: string) {
+    const clean = title.trim();
+    if (!clean) return;
+    setQuery(clean);
+    void runSearch(clean, mode, false, false);
   }
 
   function handleAddLinks(links: ReviewLink[]) {
@@ -748,8 +888,32 @@ export function VisualSearch() {
               </div>
             )}
 
+            {localResponse && (
+              <LocalMatchesSection
+                matches={localResponse.matches}
+                usedCrop={localUsedCrop}
+                selectedVariants={selectedVariants}
+                compareIds={compareIds}
+                creatingRfqId={creatingRfqId}
+                isResultSaved={isResultSaved}
+                onSelectSku={(resultId, sku) =>
+                  setSelectedVariants(prev => ({ ...prev, [resultId]: sku }))
+                }
+                onToggleCompare={handleToggleCompare}
+                onFindSimilar={handleFindSimilar}
+                onSearchByTitle={handleSearchByTitle}
+                onToggleSave={handleToggleSave}
+                onReviewChatGpt={target => {
+                  setChatGptFocused(target);
+                  setChatGptOpen(true);
+                }}
+                onCreateRfq={target => void handleCreateRfq(target)}
+                onOpenLens={() => setLensOpen(true)}
+              />
+            )}
+
             {/* Empty / No results state */}
-            {results.length === 0 ? (
+            {!hasAnyMatches ? (
               <section className="vs-empty-results" aria-live="polite">
                 <h2>Совпадений в каталоге пока не найдено</h2>
                 <p>
@@ -762,7 +926,7 @@ export function VisualSearch() {
                       className="lf-btn lf-btn--primary"
                       onClick={() => {
                         setMode('deep');
-                        void runSearch(query, 'deep');
+                        void runSearch(query, 'deep', false, false);
                       }}
                     >
                       <SparkIcon size={14} />
@@ -788,6 +952,8 @@ export function VisualSearch() {
               </section>
             ) : (
               <>
+                {results.length > 0 && (
+                  <>
                 {/* 1. ОРИГИНАЛ */}
                 <section className="vs-section" aria-labelledby="vs-sec-originals">
                   <div className="vs-section-head">
@@ -982,15 +1148,18 @@ export function VisualSearch() {
                     </div>
                   )}
                 </section>
+                  </>
+                )}
 
                 {/* 4. ТЕХНИЧЕСКАЯ ДОКУМЕНТАЦИЯ */}
+                {(results.length > 0 || documentationItems.length > 0) && (
                 <section className="vs-section" aria-labelledby="vs-sec-docs">
                   <div className="vs-section-head">
                     <div>
                       <span className="vs-section-eyebrow">04 · Техническая документация</span>
                       <h2 id="vs-sec-docs" className="vs-section-title">
                         Техническая документация
-                        <span className="vs-count-pill">{sections.documentation.length}</span>
+                        <span className="vs-count-pill">{documentationItems.length}</span>
                       </h2>
                       <p className="vs-section-desc">
                         Официальные PDF-листы, подтверждённые габариты в миллиметрах, материалы и светотехнические параметры.
@@ -998,9 +1167,9 @@ export function VisualSearch() {
                     </div>
                   </div>
 
-                  {sections.documentation.length > 0 ? (
+                  {documentationItems.length > 0 ? (
                     <div className="vs-docs-list">
-                      {sections.documentation.map(item => {
+                      {documentationItems.map(item => {
                         const chosenSku = selectedVariants[item.id] ?? '';
                         const chosenVariant = item.variants?.find(v => v.sku === chosenSku);
                         const specs = readResultSpecifications(item);
@@ -1209,13 +1378,14 @@ export function VisualSearch() {
                     </div>
                   )}
                 </section>
+                )}
               </>
             )}
 
             {/* Comparison Studio */}
             <ComparisonStudio
               items={comparedItems}
-              allResults={results}
+              allResults={allComparableResults}
               selectedVariants={selectedVariants}
               photo={photo}
               photoUrl={photoUrl}
@@ -1272,6 +1442,7 @@ export function VisualSearch() {
       <SettingsDrawer
         open={settingsOpen}
         gemini={gemini}
+        localCapabilities={localCapabilities}
         allowGemini={allowGemini}
         saved={saved}
         history={history}
@@ -1281,7 +1452,7 @@ export function VisualSearch() {
         onRemoveSaved={handleRemoveSaved}
         onPickHistory={term => {
           setQuery(term);
-          void runSearch(term, mode);
+          void runSearch(term, mode, false, false);
         }}
         onClearHistory={() => {
           setHistory([]);
@@ -1305,7 +1476,7 @@ export function VisualSearch() {
       <ChatGptDrawer
         open={chatGptOpen}
         query={query}
-        results={results}
+        results={allComparableResults}
         focusedResult={chatGptFocused}
         onClose={() => setChatGptOpen(false)}
         onAddLinks={handleAddLinks}

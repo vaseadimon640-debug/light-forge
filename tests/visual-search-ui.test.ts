@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { catalogueSearch, importReviewLinks } from '../src/visual-search/catalogue.ts';
+import { catalogueSearch, importReviewLinks, projectFromSearch } from '../src/visual-search/catalogue.ts';
+import { maxLocalPhotoBytes } from '../src/visual-search/local-contract.ts';
 import {
   buildReviewPrompt,
   buildSimilarQuery,
@@ -9,9 +10,12 @@ import {
   FULL_CROP,
   groupSearchResults,
   isFullCrop,
+  localMatchMeta,
   mergeSearchResults,
   parseChatGptJsonInput,
   parseLensUrlsInput,
+  resolveLocalMatchResult,
+  shouldUseOriginalForLocalSearch,
 } from '../src/ui/visual-search/helpers.ts';
 
 test('groupSearchResults keeps unverified imports separate from exact matches', () => {
@@ -161,5 +165,59 @@ test('buildReviewPrompt focuses on chosen card while preserving Original not ver
   assert.match(prompt, /Myring Table/);
   assert.match(prompt, /"results"/);
 });
+
+test('local visual search helpers distinguish same_file vs similar_image, preserve original bytes when uncropped, and link official catalogue specs for RFQ', () => {
+  const same = localMatchMeta('same_file');
+  assert.equal(same.label, 'Тот же файл');
+  assert.match(same.explanation, /Original not verified/);
+
+  const similar = localMatchMeta('similar_image');
+  assert.equal(similar.label, 'Похожий кадр');
+  assert.match(similar.explanation, /Original not verified/);
+
+  // Full uncropped file <= 5 MiB uses untouched original bytes so SHA-256 can match same_file
+  assert.equal(shouldUseOriginalForLocalSearch({ size: 200_000 }, FULL_CROP), true);
+  // Any active crop or oversized file (> 5 MiB) must be rendered as cropped/resized JPEG copy
+  assert.equal(
+    shouldUseOriginalForLocalSearch({ size: 200_000 }, { x: 10, y: 10, width: 70, height: 70 }),
+    false,
+  );
+  assert.equal(
+    shouldUseOriginalForLocalSearch({ size: maxLocalPhotoBytes + 1 }, FULL_CROP),
+    false,
+  );
+
+  // Official manufacturer URL (including IT alias from PR #14) enriches MYLINE specs & RFQ dimensions while keeping category visual_alternative
+  const linkedMyline = resolveLocalMatchResult({
+    id: 'myline-local-1',
+    title: 'Emmemobili MYLINE',
+    source: 'https://www.emmemobili.it/prodotti/illuminazione/myline',
+    match: 'same_file',
+  });
+  assert.ok(linkedMyline);
+  assert.equal(linkedMyline.id, 'emmemobili-myline');
+  assert.equal(linkedMyline.category, 'visual_alternative');
+  assert.ok(linkedMyline.specifications);
+  const icba02 = linkedMyline.variants?.find(v => v.sku === 'ICBA02');
+  assert.ok(icba02);
+  const rfq = projectFromSearch(linkedMyline, icba02);
+  assert.equal(rfq.project.code, 'ICBA02');
+  assert.deepEqual(rfq.project.components[0].dimensions.width, { value: 900, source: 'documentation' });
+  assert.equal(rfq.project.components[0].light.dimming, 'DALI');
+
+  // Unknown domain remains unverified; missing source yields undefined
+  const unverified = resolveLocalMatchResult({
+    id: 'shop-1',
+    title: 'External Lamp',
+    source: 'https://shop.example.invalid/lamp',
+    match: 'similar_image',
+  });
+  assert.equal(unverified?.category, 'unverified');
+  assert.equal(
+    resolveLocalMatchResult({ id: 'local-only', title: 'Studio Sample', match: 'similar_image' }),
+    undefined,
+  );
+});
+
 
 

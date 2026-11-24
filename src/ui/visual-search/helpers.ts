@@ -1,11 +1,18 @@
+import type { z } from 'zod';
 import { productTypes, type ProductType } from '../../domain/project.ts';
 import {
   canonicalSource,
+  importReviewLinks,
   reviewSchema,
   sourceUrlSchema,
   type ReviewLink,
   type SearchResult,
 } from '../../visual-search/catalogue.ts';
+import {
+  localSearchCapabilitiesSchema,
+  localSearchResponseSchema,
+  maxLocalPhotoBytes,
+} from '../../visual-search/local-contract.ts';
 
 export type CropRect = {
   x: number;
@@ -570,3 +577,58 @@ export function formatGeminiWarning(code?: string): string | null {
       return 'Не удалось автоматически проанализировать фото. Можно продолжить через Google Lens, ChatGPT или текстовое описание.';
   }
 }
+
+export type LocalSearchCapabilities = z.infer<typeof localSearchCapabilitiesSchema>;
+export type LocalSearchResponse = z.infer<typeof localSearchResponseSchema>;
+export type LocalSearchMatch = LocalSearchResponse['matches'][number];
+
+export type LocalMatchMeta = {
+  label: string;
+  tone: CategoryTone;
+  explanation: string;
+};
+
+export function localMatchMeta(match: LocalSearchMatch['match']): LocalMatchMeta {
+  if (match === 'same_file') {
+    return {
+      label: 'Тот же файл',
+      tone: 'doc',
+      explanation:
+        'Побайтовое совпадение (SHA-256) с эталоном из локального фотокаталога. Оригинальность производителя требует проверки (Original not verified).',
+    };
+  }
+  return {
+    label: 'Похожий кадр',
+    tone: 'est',
+    explanation:
+      'Сходство композиции и цветов с эталоном из локального фотокаталога. Оригинальность производителя требует проверки (Original not verified).',
+  };
+}
+
+export function shouldUseOriginalForLocalSearch(
+  file: Pick<File, 'size'>,
+  crop: CropRect,
+): boolean {
+  return isFullCrop(crop) && file.size > 0 && file.size <= maxLocalPhotoBytes;
+}
+
+export function resolveLocalMatchResult(match: LocalSearchMatch): SearchResult | undefined {
+  if (!match.source) return undefined;
+  try {
+    const [imported] = importReviewLinks([{ url: match.source, title: match.title }]);
+    if (!imported) return undefined;
+    // Preserve manufacturer catalogue specs/variants for RFQ handoff (PR #14),
+    // while keeping photo-only matches explicitly unverified as original.
+    if (imported.evidence === 'manufacturer_catalogue') {
+      return {
+        ...imported,
+        category: 'visual_alternative',
+        evidence: 'catalogue_similarity',
+      };
+    }
+    return imported;
+  } catch {
+    return undefined;
+  }
+}
+

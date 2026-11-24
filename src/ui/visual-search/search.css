@@ -2031,6 +2031,42 @@
 }
 
 /* ==========================================================================
+   Local Visual Catalogue Matches (same_file vs similar_image)
+   ========================================================================== */
+
+.vs-local-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+.vs-local-strip--same_file {
+  background: #edf6f1;
+  border-color: #c2decb;
+}
+
+.vs-local-strip--similar_image {
+  background: var(--brass-soft);
+  border-color: var(--brass-border);
+}
+
+.vs-local-strip-copy {
+  font-size: 12px;
+  color: var(--ink-secondary);
+  overflow-wrap: anywhere;
+}
+
+.vs-local-plain-card {
+  border-color: var(--border-strong);
+}
+
+/* ==========================================================================
    Responsive Adaptation (Tablet & Mobile)
    ========================================================================== */
 

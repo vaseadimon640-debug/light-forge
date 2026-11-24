@@ -19,6 +19,7 @@ import {
   extractDisplayHost,
   parseChatGptJsonInput,
   parseLensUrlsInput,
+  type LocalSearchCapabilities,
 } from './helpers';
 
 function DrawerShell({
@@ -88,6 +89,7 @@ function DrawerShell({
 type SettingsDrawerProps = {
   open: boolean;
   gemini?: SearchUsage;
+  localCapabilities?: LocalSearchCapabilities;
   allowGemini: boolean;
   saved: ReviewLink[];
   history: string[];
@@ -102,6 +104,7 @@ type SettingsDrawerProps = {
 export function SettingsDrawer({
   open,
   gemini,
+  localCapabilities,
   allowGemini,
   saved,
   history,
@@ -129,6 +132,22 @@ export function SettingsDrawer({
               <p>Стартовый каталог LIGHT FORGE, проверка URL и импорт ссылок.</p>
             </div>
             <span className="lf-badge lf-badge--documentation">Активен</span>
+          </div>
+
+          <div className="vs-source-row">
+            <div>
+              <strong>Локальный фотокаталог</strong>
+              <p>
+                {localCapabilities?.available
+                  ? `Подключён локальный индекс (${localCapabilities.referenceCount} этал.). Поиск по фото и выделенному фрагменту выполняется локально без внешних API.`
+                  : 'Локальный индекс не настроен. Поиск по названию и ручной Google Lens работают автономно.'}
+              </p>
+            </div>
+            <span
+              className={`lf-badge ${localCapabilities?.available ? 'lf-badge--documentation' : 'lf-badge--unknown'}`}
+            >
+              {localCapabilities?.available ? 'Активен' : 'Не настроен'}
+            </span>
           </div>
 
           <div className="vs-source-row">

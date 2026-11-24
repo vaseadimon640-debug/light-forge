@@ -16,7 +16,9 @@ import {
   extractDisplayHost,
   filterLightingConfigurations,
   formatLightDirection,
+  localMatchMeta,
   productKindLabel,
+  type LocalSearchMatch,
 } from './helpers';
 import { LuminaireVisualPlate } from './LuminaireVisualPlate';
 
@@ -27,6 +29,7 @@ type ResultCardProps = {
   isSaved: boolean;
   creatingRfq: boolean;
   featured?: boolean;
+  localMatch?: LocalSearchMatch;
   onSelectSku: (sku: string) => void;
   onToggleCompare: (result: SearchResult) => void;
   onFindSimilar: (result: SearchResult) => void;
@@ -42,6 +45,7 @@ export function ResultCard({
   isSaved,
   creatingRfq,
   featured = false,
+  localMatch,
   onSelectSku,
   onToggleCompare,
   onFindSimilar,
@@ -50,6 +54,7 @@ export function ResultCard({
   onCreateRfq,
 }: ResultCardProps) {
   const meta = categoryMeta(result.category);
+  const localMeta = localMatch ? localMatchMeta(localMatch.match) : null;
   const kind = productKindLabel(result.kind);
   const host = extractDisplayHost(result.source);
   const variants = result.variants ?? [];
@@ -61,10 +66,20 @@ export function ResultCard({
     <article
       className={`vs-card ${result.category === 'verified_original' ? 'vs-card--original' : ''} ${featured ? 'vs-card--featured' : ''} ${isCompared ? 'vs-card--compared' : ''}`}
       data-result-id={result.id}
+      data-local-match={localMatch?.match}
     >
       <LuminaireVisualPlate result={result} selectedSku={selectedSku} />
 
       <div className="vs-card-body">
+        {localMatch && localMeta && (
+          <div className={`vs-local-strip vs-local-strip--${localMatch.match}`}>
+            <span className={`vs-pill vs-pill--${localMeta.tone}`}>{localMeta.label}</span>
+            <span className="vs-local-strip-copy">
+              {localMatch.title} · <span className="mono">{localMatch.id}</span>
+            </span>
+          </div>
+        )}
+
         <div className="vs-card-head">
           <div className="vs-card-eyebrow">
             <span>{result.brand ?? host}</span>
@@ -83,9 +98,11 @@ export function ResultCard({
           </div>
           <h3 className="vs-card-title">{result.name}</h3>
           <p className="vs-card-honest">
-            {result.category === 'verified_original'
-              ? 'Запись производителя · Original not verified до сверки с вашим фото'
-              : meta.explanation}
+            {localMeta
+              ? localMeta.explanation
+              : result.category === 'verified_original'
+                ? 'Запись производителя · Original not verified до сверки с вашим фото'
+                : meta.explanation}
           </p>
         </div>
 
