@@ -27,12 +27,17 @@ test('review links remove trackers and duplicate pages without granting untruste
     { url: canonical + '&utm_source=lens', title: 'Reference' },
     { url: canonical + '#gallery', title: 'Duplicate' },
     { url: 'https://www.emmemobili.it/prodotti/illuminazione/myline?utm_campaign=x', title: 'Maker' },
+    { url: 'https://www.emmemobili.it/en/prodotti/illuminazione/myline', title: 'MYLINE English' },
   ]);
   assert.equal(imported.length, 2);
   assert.equal(imported[0].category, 'unverified');
   assert.equal(imported[0].source, canonical);
   assert.equal(imported[1].name, 'MYLINE');
   assert.equal(imported[1].category, 'verified_original');
+  assert.equal(imported[1].source, 'https://www.emmemobili.it/en/prodotti/illuminazione/myline');
+  const [myring] = importReviewLinks([{ url: 'https://www.emmemobili.it/en/prodotti/illuminazione/myring-table', title: 'Myring Table' }]);
+  assert.equal(myring.category, 'verified_original');
+  assert.equal(importReviewLinks([{ url: 'https://emmemobili.example.invalid/en/prodotti/illuminazione/myline', title: 'MYLINE' }])[0].category, 'unverified');
   assert.throws(() => canonicalSource('javascript:alert(1)'));
   assert.throws(() => canonicalSource('https://someone:secret@example.com/model'));
 });
@@ -48,6 +53,35 @@ test('creating an RFQ imports documented variant dimensions and preserves the su
   assert.equal(project.components[0].light.directionId, undefined);
   assert.deepEqual(new Uint8Array(await originals[project.primaryPhotoId!].arrayBuffer()), new Uint8Array([0,128,255]));
   assert.equal(projectFromSearch(result).project.components[0].dimensions.width, undefined);
+});
+
+test('an RFQ for a catalogue alternative uses only the documented data for the selected SKU', async () => {
+  const response = await POST(new Request('http://lf/api/visual-search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: 'латунь', mode: 'standard' }),
+  }));
+  assert.equal(response.status, 200);
+  const { results, originalVerified } = searchResponseSchema.parse(await response.json());
+  const result = results.find(item => item.id === 'emmemobili-myline');
+  assert.ok(result);
+  assert.equal(result.category, 'visual_alternative');
+  assert.equal(originalVerified, false);
+  const variant = result.variants?.find(item => item.sku === 'ICBA02');
+  assert.ok(variant);
+  const { project } = projectFromSearch(result, { ...variant, widthMm: 1 });
+  const [component] = projectSchema.parse(project).components;
+  assert.equal(project.code, 'ICBA02');
+  assert.deepEqual(component.dimensions, {
+    width: { value: 900, source: 'documentation' },
+    depth: { value: 60, source: 'documentation' },
+    height: { value: 700, source: 'documentation' },
+  });
+  assert.equal(component.light.dimming, 'DALI');
+  assert.equal(component.light.watts, undefined);
+  assert.equal(component.light.directionId, undefined);
+  assert.equal(projectFromSearch({ ...result, evidence: 'user_link' }, variant).project.code, '');
+  assert.equal(projectFromSearch(result, { ...variant, sku: 'UNKNOWN' }).project.code, '');
 });
 
 test('Gemini discovery chooses only an approved listed generation model', () => {

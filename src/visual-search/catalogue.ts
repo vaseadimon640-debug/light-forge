@@ -49,12 +49,13 @@ export type SearchResult = z.infer<typeof searchResultSchema>;
 export type SearchUsage = z.infer<typeof searchUsageSchema>;
 export type SearchResponse = z.infer<typeof searchResponseSchema>;
 type Variant = z.infer<typeof variantSchema>;
-type CatalogueEntry = Omit<SearchResult, 'category' | 'evidence'> & { keywords: string[] };
+type CatalogueEntry = Omit<SearchResult, 'category' | 'evidence'> & { keywords: string[]; sourceAliases?: string[] };
 
 const catalogue: CatalogueEntry[] = [
   {
     id: 'emmemobili-myline', name: 'MYLINE', brand: 'Emmemobili', kind: 'chandelier',
     source: 'https://www.emmemobili.it/en/prodotti/illuminazione/myline',
+    sourceAliases: ['https://www.emmemobili.it/prodotti/illuminazione/myline'],
     documentUrl: 'https://www.emmemobili.it/_files/ugd/a74d91_0efaff6445f04844abdd37aafa04494e.pdf',
     confirmedDimming: 'DALI',
     specifications: mylineSpecifications,
@@ -70,6 +71,7 @@ const catalogue: CatalogueEntry[] = [
   {
     id: 'emmemobili-myring-table', name: 'Myring Table', brand: 'Emmemobili', kind: 'table',
     source: 'https://www.emmemobili.it/prodotti/illuminazione/myring-table',
+    sourceAliases: ['https://www.emmemobili.it/en/prodotti/illuminazione/myring-table'],
     details: 'Кольцевая форма. Настольный светильник с другим способом установки.',
     keywords: ['ring', 'brass', 'table', 'кольцо', 'настольный', 'anelli', '环形'],
   },
@@ -100,7 +102,7 @@ export function catalogueSearch(value: string, mode: SearchInput['mode']): Searc
     const exact = names.some(name => containsToken(query, name));
     const keywords = entry.keywords.filter(word => containsToken(query, word)).length;
     const brand = entry.brand && containsToken(query, normalize(entry.brand)) ? 1 : 0;
-    const { keywords: _keywords, ...item } = entry;
+    const { keywords: _keywords, sourceAliases: _aliases, ...item } = entry;
     const result: SearchResult = exact
       ? { ...item, category: 'verified_original', evidence: 'manufacturer_catalogue' }
       : { ...item, category: 'visual_alternative', evidence: 'catalogue_similarity' };
@@ -116,13 +118,12 @@ export function importReviewLinks(links: ReviewLink[]): SearchResult[] {
   const unique = new Map<string, SearchResult>();
   for (const item of reviewSchema.parse({ results: links }).results) {
     const source = canonicalSource(item.url);
-    const official = catalogue.find(entry => {
-      const canonical = canonicalSource(entry.source);
-      return canonical === source || canonical.replace('www.emmemobili.it/en/', 'www.emmemobili.it/') === source;
-    });
+    const official = catalogue.find(entry =>
+      [entry.source, ...(entry.sourceAliases ?? [])].some(url => canonicalSource(url) === source),
+    );
     if (official) {
-      const { keywords: _keywords, ...entry } = official;
-      unique.set(source, { ...entry, category: 'verified_original', evidence: 'manufacturer_catalogue' });
+      const { keywords: _keywords, sourceAliases: _aliases, ...entry } = official;
+      unique.set(canonicalSource(entry.source), { ...entry, category: 'verified_original', evidence: 'manufacturer_catalogue' });
       continue;
     }
     if (!unique.has(source)) unique.set(source, { id: source, name: item.title, category: 'unverified', evidence: 'user_link', source });
@@ -142,18 +143,22 @@ export function projectFromSearch(result: SearchResult, variant?: Variant, image
   project.name = [result.brand, result.name].filter(Boolean).join(' ').slice(0,120);
   project.notes = [`Reference: ${result.source}`, result.documentUrl ? `Technical sheet: ${result.documentUrl}` : '',
     result.details ?? 'Manufacturer and product details to be confirmed.'].filter(Boolean).join('\n').slice(0,1000);
-  if (result.category === 'verified_original' && result.kind) {
-    project.kind = result.kind;
-    const component = newComponent(result.kind);
-    component.name = result.name;
-    const verifiedVariant = result.variants?.find(item => item.sku === variant?.sku);
+  // A result can be an approximate match to the input and still have documented product specifications.
+  const documented = result.evidence !== 'user_link' && result.category !== 'unverified'
+    ? catalogue.find(entry => entry.id === result.id && entry.source === result.source)
+    : undefined;
+  if (documented?.kind) {
+    project.kind = documented.kind;
+    const component = newComponent(documented.kind);
+    component.name = documented.name;
+    const verifiedVariant = documented.variants?.find(item => item.sku === variant?.sku);
     if (verifiedVariant) {
       project.code = verifiedVariant.sku;
       for (const [key, value] of [['width', verifiedVariant.widthMm], ['depth', verifiedVariant.depthMm], ['height', verifiedVariant.heightMm]] as const) {
         component.dimensions[key] = { value, source: 'documentation' };
       }
     }
-    if (result.confirmedDimming) component.light.dimming = result.confirmedDimming;
+    if (documented.confirmedDimming) component.light.dimming = documented.confirmedDimming;
     project.components = [component];
   }
   if (!image) return { project, originals: {} };
