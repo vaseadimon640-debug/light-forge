@@ -3,7 +3,11 @@ import { useRef } from 'react';
 export const configuratorSteps = [
   { id: 'source', title: 'Источник', description: 'Начните с фотографии, образца MYLINE или проекта из библиотеки.' },
   { id: 'product', title: 'Изделие', description: 'Выберите тип светильника, название и количество.' },
-  { id: 'components', title: 'Компоненты', description: 'Задайте габариты, материалы, отделку и свет для каждой детали.' },
+  { id: 'geometry', title: 'Геометрия', description: 'Выберите компонент и задайте его габариты.' },
+  { id: 'materials', title: 'Материалы', description: 'Выберите основной материал каждой детали.' },
+  { id: 'finish', title: 'Отделка', description: 'Задайте покрытие и цвет отдельно от основного материала.' },
+  { id: 'lighting', title: 'Свет', description: 'Укажите цветовую температуру, CRI, мощность и световой поток.' },
+  { id: 'electrical', title: 'Электрика', description: 'Выберите диммирование и степень защиты.' },
   { id: 'mounting', title: 'Монтаж', description: 'Укажите уровни и способ подвеса. Оставьте неизвестные значения пустыми.' },
   { id: 'notes', title: 'Требования', description: 'Добавьте требования к упаковке, образцам или срокам.' },
   { id: 'review', title: 'Проверка и PDF', description: 'Сверьте спецификацию и подготовьте PDF для фабрики.' },

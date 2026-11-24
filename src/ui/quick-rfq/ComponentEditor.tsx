@@ -30,6 +30,7 @@ type ComponentEditorProps = {
   onUpdateComponent: (componentId: string, updater: (component: Component) => Component) => void;
   unit: Unit;
   issues: FieldIssue[];
+  section?: 'geometry' | 'materials' | 'finish' | 'lighting' | 'electrical';
 };
 
 const allDimensionKeys = Object.keys(dimensions) as DimensionKey[];
@@ -47,6 +48,7 @@ export function ComponentEditor({
   onUpdateComponent,
   unit,
   issues,
+  section,
 }: ComponentEditorProps) {
   const [showExtraDims, setShowExtraDims] = useState(false);
   const [expandedMaterialDetails, setExpandedMaterialDetails] = useState<Record<string, boolean>>({});
@@ -87,6 +89,7 @@ export function ComponentEditor({
     }));
   }
 
+  const show = (name: NonNullable<ComponentEditorProps['section']>) => !section || section === name;
   const usesSolidBrass = component.materials.some(item => item.material === 'solidBrass');
   const usesGenuineLeather = component.materials.some(item => item.material === 'genuineLeather');
 
@@ -223,7 +226,7 @@ export function ComponentEditor({
         </div>
 
         {/* Dimensions */}
-        <div className="lf-subblock">
+        <div className="lf-subblock" hidden={!show('geometry')}>
           <div className="lf-subblock-head">
             <h3 className="lf-subblock-title">Габариты и размеры корпуса</h3>
             <button
@@ -272,13 +275,12 @@ export function ComponentEditor({
         </div>
 
         {/* Light & Electrical */}
-        <div className="lf-subblock">
+        <div className="lf-subblock" hidden={!show('lighting') && !show('electrical')}>
           <div className="lf-subblock-head">
-            <h3 className="lf-subblock-title">Свет и электрика (на 1 единицу компонента)</h3>
-            <span className="lf-field-hint">Драйвер и напряжение → фабрике</span>
+            <h3 className="lf-subblock-title">{section === 'lighting' ? 'Светотехника' : section === 'electrical' ? 'Диммирование и защита' : 'Свет и электрика (на 1 единицу компонента)'}</h3>
           </div>
 
-          <div className="lf-grid-2">
+          <div className="lf-grid-2" hidden={!show('lighting')}>
             <MeasurementInput
               id={`light-cct-${component.id}`}
               label="Цветовая температура (CCT)"
@@ -327,7 +329,7 @@ export function ComponentEditor({
           </div>
 
           <div className="lf-grid-3">
-            <div className="lf-field">
+            <div className="lf-field" hidden={!show('lighting')}>
               <label className="lf-label" htmlFor={`light-dir-${component.id}`}>
                 Направление света
               </label>
@@ -354,7 +356,7 @@ export function ComponentEditor({
               </select>
             </div>
 
-            <div className="lf-field">
+            <div className="lf-field" hidden={!show('electrical')}>
               <label className="lf-label" htmlFor={`light-dim-${component.id}`}>
                 Диммирование
               </label>
@@ -381,7 +383,7 @@ export function ComponentEditor({
               </select>
             </div>
 
-            <div className="lf-field">
+            <div className="lf-field" hidden={!show('electrical')}>
               <label className="lf-label" htmlFor={`light-ip-${component.id}`}>
                 Степень защиты (IP)
               </label>
@@ -411,10 +413,11 @@ export function ComponentEditor({
         </div>
 
         {/* Materials & Finishes */}
-        <div className="lf-subblock">
+        <div className="lf-subblock" hidden={!show('materials') && !show('finish')}>
           <div className="lf-subblock-head">
-            <h3 className="lf-subblock-title">Материалы, отделка и цвет</h3>
+            <h3 className="lf-subblock-title">{section === 'materials' ? 'Основные материалы' : section === 'finish' ? 'Отделка и цвет' : 'Материалы, отделка и цвет'}</h3>
             <button
+              hidden={!show('materials')}
               id={`lf-add-material-${component.id}`}
               type="button"
               className="lf-btn lf-btn--sm"
@@ -433,7 +436,7 @@ export function ComponentEditor({
             </button>
           </div>
 
-          {(usesSolidBrass || usesGenuineLeather) && (
+          {show('materials') && (usesSolidBrass || usesGenuineLeather) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {usesSolidBrass && (
                 <span className="lf-badge lf-badge--brass">
@@ -465,7 +468,7 @@ export function ComponentEditor({
                   <div key={mat.id} className="lf-item-row">
                     <div className="lf-item-row-head">
                       <span className="lf-field-hint" style={{ fontWeight: 600 }}>
-                        Позиция #{matIndex + 1}
+                        Позиция #{matIndex + 1}{section === 'finish' ? ` · ${mat.part}` : ''}
                       </span>
                       <div style={{ display: 'inline-flex', gap: 6 }}>
                         <button
@@ -478,6 +481,7 @@ export function ComponentEditor({
                           {detailOpen ? 'Скрыть уточнения' : 'Уточнения'}
                         </button>
                         <button
+                          hidden={!show('materials')}
                           type="button"
                           className="lf-btn lf-btn--danger lf-btn--icon"
                           aria-label={`Удалить материал ${mat.part}`}
@@ -494,7 +498,7 @@ export function ComponentEditor({
                     </div>
 
                     <div className="lf-grid-2">
-                      <div className="lf-field">
+                      <div className="lf-field" hidden={!show('materials')}>
                         <label className="lf-label" htmlFor={`mat-part-${mat.id}`}>
                           Деталь
                         </label>
@@ -512,7 +516,7 @@ export function ComponentEditor({
                         {partErr && <span className="lf-field-error">{partErr}</span>}
                       </div>
 
-                      <div className="lf-field">
+                      <div className="lf-field" hidden={!show('materials')}>
                         <label className="lf-label" htmlFor={`mat-type-${mat.id}`}>
                           Материал
                         </label>
@@ -535,7 +539,7 @@ export function ComponentEditor({
                         </select>
                       </div>
 
-                      <div className="lf-field">
+                      <div className="lf-field" hidden={!show('finish')}>
                         <label className="lf-label" htmlFor={`mat-finish-${mat.id}`}>
                           Отделка (отдельное поле)
                         </label>
@@ -562,7 +566,7 @@ export function ComponentEditor({
                         </select>
                       </div>
 
-                      <div className="lf-field">
+                      <div className="lf-field" hidden={!show('finish')}>
                         <label className="lf-label" htmlFor={`mat-color-${mat.id}`}>
                           Цвет / RAL (отдельное поле)
                         </label>
@@ -588,7 +592,7 @@ export function ComponentEditor({
 
                     {detailOpen && (
                       <div className="lf-grid-2">
-                        <div className="lf-field">
+                        <div className="lf-field" hidden={!show('materials')}>
                           <label className="lf-label" htmlFor={`mat-detail-${mat.id}`}>
                             Уточнение материала
                           </label>
@@ -610,7 +614,7 @@ export function ComponentEditor({
                             }}
                           />
                         </div>
-                        <div className="lf-field">
+                        <div className="lf-field" hidden={!show('finish')}>
                           <label className="lf-label" htmlFor={`mat-fdetail-${mat.id}`}>
                             Уточнение отделки
                           </label>
