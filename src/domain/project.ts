@@ -69,6 +69,23 @@ export const directions = {
 
 export const dimmingModes = ['none', 'DALI', 'DALI-2', 'TRIAC', '0–10 V', 'Casambi', 'KNX'] as const;
 export const ipRatings = ['IP20', 'IP44', 'IP54', 'IP65', 'IP67'] as const;
+export const ledTypes = {
+  smdStrip: ['SMD LED-лента', 'SMD LED strip', 'SMD LED 灯带'],
+  cobLinear: ['COB линейный LED', 'Linear COB LED', 'COB 线性光源'],
+  cobModule: ['COB LED-модуль', 'COB LED module', 'COB 光源模组'],
+  ledBoard: ['Жёсткая LED-плата (PCB)', 'Rigid LED PCB board', 'LED 硬灯板 (PCB)'],
+  replaceableBulb: ['Сменная лампа (E27/G9/GU10)', 'Replaceable lamp (E27/G9/GU10)', '可换光源灯泡'],
+  custom: ['Нестандартный источник LED', 'Custom LED source', '定制 LED 光源'],
+} as const;
+export const inputVoltages = ['220–240 V AC', '110–120 V AC', '100–277 V AC', '24 V DC', '48 V DC'] as const;
+export const driverTypes = {
+  remote: ['Выносной драйвер (Remote)', 'Remote driver', '外置驱动器'],
+  integratedCanopy: ['Встроен в потолочную чашу', 'Integrated in ceiling canopy', '内置于吸顶盘'],
+  integratedBody: ['Встроен в корпус светильника', 'Integrated in luminaire body', '内置于灯体'],
+  constantVoltage24V: ['Блок питания 24V DC (CV)', '24V DC constant-voltage PSU', '24V 恒压电源'],
+  constantCurrent: ['Драйвер постоянного тока (CC)', 'Constant-current LED driver', '恒流驱动电源'],
+  none: ['Без отдельного драйвера (сетевой)', 'Driverless / mains AC', '无外置驱动（市电直驱）'],
+} as const;
 export const sources = {
   user: ['От пользователя', 'User-supplied', '用户提供'],
   documentation: ['По документации', 'Verified by documentation', '经文件核实'],
@@ -105,9 +122,13 @@ export const componentSchema = z.strictObject({
   light: z.strictObject({
     cct: measurement(z.number().int().min(1000).max(20000)).optional(),
     cri: measurement(z.number().min(0).max(100)).optional(),
+    ledType: z.enum(Object.keys(ledTypes) as [keyof typeof ledTypes, ...(keyof typeof ledTypes)[]]).optional(),
     watts: measurement(z.number().positive().max(100000)).optional(),
     lumens: measurement(z.number().positive().max(10000000)).optional(),
     directionId: z.enum(['up', 'down', 'both', 'diffuse', 'adjustable']).optional(),
+    beamAngleDeg: measurement(z.number().min(5).max(360)).optional(),
+    voltage: z.enum(inputVoltages).optional(),
+    driver: z.enum(Object.keys(driverTypes) as [keyof typeof driverTypes, ...(keyof typeof driverTypes)[]]).optional(),
     dimming: z.enum(dimmingModes).optional(),
     ip: z.enum(ipRatings).optional(),
   }),

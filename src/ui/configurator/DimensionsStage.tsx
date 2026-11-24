@@ -473,9 +473,21 @@ export function DimensionsStage({
                 <select
                   id="lfw-proj-kind"
                   value={project.kind}
-                  onChange={(e) =>
-                    onUpdateProject((p) => ({ ...p, kind: e.target.value as ProductType }), 'kind')
-                  }
+                  onChange={(e) => {
+                    const nextKind = e.target.value as ProductType;
+                    onUpdateProject(
+                      (p) => ({
+                        ...p,
+                        kind: nextKind,
+                        components: p.components.map((c) =>
+                          p.components.length === 1 || c.kind === p.kind
+                            ? { ...c, kind: nextKind }
+                            : c,
+                        ),
+                      }),
+                      'kind',
+                    );
+                  }}
                 >
                   {productTypeKeys.map((k) => (
                     <option key={k} value={k}>

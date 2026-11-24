@@ -3706,6 +3706,15 @@ components:
                           - value
                           - source
                         additionalProperties: false
+                      ledType:
+                        type: string
+                        enum:
+                          - smdStrip
+                          - cobLinear
+                          - cobModule
+                          - ledBoard
+                          - replaceableBulb
+                          - custom
                       watts:
                         type: object
                         properties:
@@ -3748,6 +3757,40 @@ components:
                           - both
                           - diffuse
                           - adjustable
+                      beamAngleDeg:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 5
+                            maximum: 360
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      voltage:
+                        type: string
+                        enum:
+                          - 220–240 V AC
+                          - 110–120 V AC
+                          - 100–277 V AC
+                          - 24 V DC
+                          - 48 V DC
+                      driver:
+                        type: string
+                        enum:
+                          - remote
+                          - integratedCanopy
+                          - integratedBody
+                          - constantVoltage24V
+                          - constantCurrent
+                          - none
                       dimming:
                         type: string
                         enum:
@@ -5155,6 +5198,15 @@ components:
                           - value
                           - source
                         additionalProperties: false
+                      ledType:
+                        type: string
+                        enum:
+                          - smdStrip
+                          - cobLinear
+                          - cobModule
+                          - ledBoard
+                          - replaceableBulb
+                          - custom
                       watts:
                         type: object
                         properties:
@@ -5197,6 +5249,40 @@ components:
                           - both
                           - diffuse
                           - adjustable
+                      beamAngleDeg:
+                        type: object
+                        properties:
+                          value:
+                            type: number
+                            minimum: 5
+                            maximum: 360
+                          source:
+                            type: string
+                            enum:
+                              - user
+                              - documentation
+                              - estimated
+                        required:
+                          - value
+                          - source
+                        additionalProperties: false
+                      voltage:
+                        type: string
+                        enum:
+                          - 220–240 V AC
+                          - 110–120 V AC
+                          - 100–277 V AC
+                          - 24 V DC
+                          - 48 V DC
+                      driver:
+                        type: string
+                        enum:
+                          - remote
+                          - integratedCanopy
+                          - integratedBody
+                          - constantVoltage24V
+                          - constantCurrent
+                          - none
                       dimming:
                         type: string
                         enum:

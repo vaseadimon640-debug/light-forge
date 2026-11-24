@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { dimensions, dimensionKeys, directions, finishes, materials, productTypes, projectSchema, sources, type DimensionKey, type Measurement } from '../domain/project.ts';
+import { dimensions, dimensionKeys, directions, driverTypes, finishes, ledTypes, materials, productTypes, projectSchema, sources, type DimensionKey, type Measurement } from '../domain/project.ts';
 import { compositionSchema } from '../geometry/schema.ts';
 import { resolveComposition } from '../geometry/resolve.ts';
 import type { ResolvedComposition, ResolvedValue } from '../geometry/result.ts';
@@ -189,12 +189,22 @@ export function buildQuickRfq(input: unknown): QuickRfq {
       ...[...knownKeys].map((key): [Cell, Cell] => [translate(dimensions[key]), measured(knownDimensions[key], ' mm')]),
       [pair('CCT', '色温'), measured(light.cct, ' K')],
       [pair('CRI', '显色指数'), measured(light.cri)],
+      ...(light.ledType ? [[pair('LED source type', 'LED 光源类型'), translate(ledTypes[light.ledType])] as [Cell, Cell]] : []),
       [pair('Power per component', '单件功率'), measured(light.watts, ' W')],
       [pair('Luminous flux per component', '单件光通量'), measured(light.lumens, ' lm')],
       [pair('Light direction', '出光方向'), light.directionId ? translate(directions[light.directionId]) : unknown],
+      ...(light.beamAngleDeg ? [[pair('Beam angle', '光束角'), measured(light.beamAngleDeg, '°')] as [Cell, Cell]] : []),
       [pair('Dimming', '调光'), light.dimming === 'none' ? pair('None', '不调光') : light.dimming ?? unknown],
       [pair('IP rating', '防护等级'), light.ip ?? unknown],
-      [pair('Driver and input voltage', '驱动器及输入电压'), unknown],
+      [
+        pair('Driver and input voltage', '驱动器及输入电压'),
+        light.driver || light.voltage
+          ? pair(
+              [light.driver ? localize(translate(driverTypes[light.driver]), 'en') : null, light.voltage ?? null].filter(Boolean).join(' · '),
+              [light.driver ? localize(translate(driverTypes[light.driver]), 'zh') : null, light.voltage ?? null].filter(Boolean).join(' · '),
+            )
+          : unknown,
+      ],
     ];
     for (const material of component.materials) {
       const describe = (detail: Cell, lang: 'en' | 'zh') => localize(detail, lang);
