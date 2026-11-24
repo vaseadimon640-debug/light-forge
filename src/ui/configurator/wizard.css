@@ -1,0 +1,717 @@
+/* ==========================================================================
+   LIGHT FORGE — Phase 1 Architectural Atelier Step-by-Step Wizard
+   Clean, spacious, image-first layout with zero visual overload on Step 1.
+   Full Light & Dark Atelier theme parity + 0px horizontal overflow (1440..375px).
+   ========================================================================== */
+
+.lfw-shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-canvas);
+  color: var(--ink-primary);
+}
+
+/* Slim Architectural Top Bar */
+.lfw-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px clamp(16px, 3vw, 32px);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--atelier-edge);
+  flex-wrap: wrap;
+}
+
+.lfw-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.lfw-project-pill {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.lfw-save-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--bg-subtle);
+  border: 1px solid var(--atelier-edge);
+  color: var(--atelier-muted);
+  white-space: nowrap;
+}
+
+.lfw-save-badge--saved {
+  background: var(--success-soft);
+  border-color: var(--success-border);
+  color: var(--success);
+}
+
+.lfw-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Stepper Bar */
+.lfw-stepper-wrap {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--atelier-edge);
+  padding: 10px clamp(16px, 3vw, 32px);
+}
+
+.lfw-stepper {
+  max-width: 1120px;
+  margin: 0 auto;
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.lfw-step-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--atelier-muted);
+  font-size: 12.5px;
+  font-weight: 550;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.lfw-step-btn:hover {
+  background: var(--bg-subtle);
+  color: var(--ink-primary);
+}
+
+.lfw-step-btn[aria-current='step'] {
+  background: var(--atelier-selected);
+  border-color: var(--brass-border);
+  color: var(--ink-primary);
+  font-weight: 650;
+}
+
+.lfw-step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--bg-muted);
+  color: var(--ink-secondary);
+  flex-shrink: 0;
+}
+
+.lfw-step-btn[aria-current='step'] .lfw-step-num {
+  background: var(--accent);
+  color: var(--ink-inverse);
+}
+
+.lfw-step-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.lfw-step-count {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+  color: var(--ink-secondary);
+  flex-shrink: 0;
+}
+
+/* Main Spacious Canvas */
+.lfw-stage-container {
+  flex: 1;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(20px, 3.5vw, 44px) clamp(16px, 3vw, 32px) 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ==========================================================================
+   STAGE 1 — IMAGE-FIRST UPLOAD CANVAS
+   ========================================================================== */
+
+.lfw-upload-stage {
+  max-width: 780px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.lfw-hero-head {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lfw-hero-head h1 {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 400;
+  font-size: clamp(28px, 4.2vw, 44px);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  color: var(--ink-primary);
+}
+
+.lfw-hero-head p {
+  margin: 0 auto;
+  max-width: 560px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--atelier-muted);
+}
+
+.lfw-dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 270px;
+  padding: clamp(24px, 4vw, 44px) 24px;
+  border-radius: 18px;
+  border: 2px dashed var(--border-strong);
+  background: var(--bg-surface);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.lfw-dropzone:hover,
+.lfw-dropzone--drag {
+  border-color: var(--brass);
+  background: var(--brass-soft);
+  box-shadow: var(--shadow-sm);
+}
+
+.lfw-dropzone-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: var(--atelier-selected);
+  color: var(--brass);
+}
+
+.lfw-dropzone-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.lfw-dropzone-sub {
+  font-size: 13px;
+  color: var(--atelier-muted);
+  max-width: 460px;
+  line-height: 1.5;
+}
+
+.lfw-dropzone-formats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.lfw-format-chip {
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+/* Large Hero Photo Preview */
+.lfw-preview-card {
+  border-radius: 18px;
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.lfw-preview-hero {
+  position: relative;
+  background: var(--bg-subtle);
+  display: grid;
+  place-items: center;
+  min-height: 300px;
+  max-height: 460px;
+  overflow: hidden;
+}
+
+.lfw-preview-hero img {
+  width: 100%;
+  height: 100%;
+  max-height: 460px;
+  object-fit: contain;
+  display: block;
+}
+
+.lfw-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--atelier-edge);
+  flex-wrap: wrap;
+}
+
+.lfw-thumb-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--atelier-edge);
+  overflow-x: auto;
+}
+
+.lfw-thumb {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  border: 2px solid var(--border);
+  overflow: hidden;
+  flex-shrink: 0;
+  padding: 0;
+  background: var(--bg-subtle);
+}
+
+.lfw-thumb--primary {
+  border-color: var(--brass);
+  box-shadow: 0 0 0 2px var(--brass-soft);
+}
+
+.lfw-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.lfw-thumb-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(20, 24, 26, 0.78);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+
+.lfw-drawings-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+}
+
+.lfw-drawing-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-surface);
+  font-size: 12px;
+}
+
+.lfw-upload-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-surface);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.lfw-upload-option input {
+  margin-top: 3px;
+}
+
+.lfw-upload-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lfw-cta-primary {
+  min-height: 48px;
+  padding: 0 26px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 12px;
+}
+
+.lfw-cta-secondary {
+  min-height: 48px;
+  padding: 0 20px;
+  font-size: 14.5px;
+  border-radius: 12px;
+}
+
+.lfw-subtle-footer {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--atelier-muted);
+}
+
+.lfw-subtle-link {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  text-decoration: underline;
+  font-weight: 550;
+  padding: 2px 4px;
+}
+
+/* ==========================================================================
+   STAGES 2–6 — CLEAN TWO-COLUMN ATELIER STAGE LAYOUT
+   ========================================================================== */
+
+.lfw-stage-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.lfw-stage-head h1 {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 400;
+  font-size: clamp(24px, 3vw, 34px);
+  line-height: 1.15;
+}
+
+.lfw-stage-head p {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--atelier-muted);
+}
+
+.lfw-split {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.92fr) minmax(0, 1.35fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.lfw-split > * {
+  min-width: 0;
+}
+
+.lfw-visual-aside {
+  position: sticky;
+  top: 124px;
+  border-radius: 16px;
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+.lfw-visual-aside-img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: var(--bg-subtle);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.lfw-visual-aside-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.lfw-visual-aside-meta {
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+  font-size: 12.5px;
+  border-top: 1px solid var(--atelier-edge);
+}
+
+.lfw-panel {
+  border-radius: 16px;
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-surface);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.lfw-panel h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.lfw-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.lfw-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.lfw-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.lfw-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.lfw-field input,
+.lfw-field select,
+.lfw-field textarea {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+  font-size: 13.5px;
+}
+
+.lfw-field textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.lfw-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.lfw-footer-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--atelier-edge);
+  flex-wrap: wrap;
+}
+
+.lfw-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 8px;
+}
+
+.lfw-swatch-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+  color: var(--ink-primary);
+  font-size: 12px;
+  font-weight: 550;
+  text-align: left;
+}
+
+.lfw-swatch-btn[aria-pressed='true'] {
+  border-color: var(--brass);
+  background: var(--atelier-selected);
+  font-weight: 650;
+}
+
+.lfw-swatch-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  flex-shrink: 0;
+}
+
+.lfw-strict-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--brass-border);
+  background: var(--brass-soft);
+  cursor: pointer;
+}
+
+.lfw-strict-box strong {
+  display: block;
+  font-size: 13.5px;
+  margin-bottom: 2px;
+}
+
+.lfw-strict-box span {
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.lfw-summary-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lfw-kpi {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--atelier-edge);
+  background: var(--bg-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.lfw-kpi strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lfw-kpi span {
+  font-size: 12px;
+  color: var(--atelier-muted);
+}
+
+/* Dark theme adjustments */
+[data-theme='dark'] .lfw-save-badge--saved {
+  background: #23382e;
+  border-color: #3b6350;
+  color: #a4dfc2;
+}
+
+[data-theme='dark'] .lfw-dropzone {
+  background: var(--bg-surface);
+}
+
+[data-theme='dark'] .lfw-dropzone:hover,
+[data-theme='dark'] .lfw-dropzone--drag {
+  background: var(--atelier-selected);
+}
+
+@media (max-width: 1024px) {
+  .lfw-stepper {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .lfw-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lfw-visual-aside {
+    position: static;
+  }
+
+  .lfw-summary-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .lfw-stepper {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lfw-grid-2,
+  .lfw-grid-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lfw-upload-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lfw-project-pill {
+    max-width: 170px;
+  }
+}
