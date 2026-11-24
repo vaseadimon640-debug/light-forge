@@ -1,5 +1,7 @@
 'use client';
 
+import { StudioNavigation } from '../StudioNavigation';
+
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { imageTypes, maxPhotoBytes } from '@/domain/project';
 import { openProjectStore } from '@/storage/projects';
@@ -633,7 +635,7 @@ export function VisualSearch() {
   return (
     <div className="lf-shell vs-shell">
       {/* Cohesive LIGHT FORGE Topbar */}
-      <header className="lf-topbar vs-topbar">
+      <header className="lf-topbar vs-topbar lf-studio-topbar">
         <div className="lf-brand-group">
           <a href="/search" className="lf-brand">
             <span className="lf-brand-mark" aria-hidden="true">
@@ -641,18 +643,12 @@ export function VisualSearch() {
             </span>
             <span className="lf-brand-text">
               <span className="lf-brand-title">LIGHT FORGE</span>
-              <span className="lf-brand-sub">Поиск светильников по фото</span>
             </span>
           </a>
         </div>
 
-        <nav className="lf-topbar-actions" aria-label="Разделы LIGHT FORGE">
-          <a href="/" className="lf-btn lf-btn--sm">
-            Quick RFQ
-          </a>
-          <a href="/geometry" className="lf-btn lf-btn--sm">
-            3D-конструктор
-          </a>
+        <StudioNavigation current="search" />
+        <div className="lf-topbar-actions">
           {comparedItems.length > 0 && (
             <button
               id="vs-topbar-compare-btn"
@@ -673,7 +669,7 @@ export function VisualSearch() {
             <SlidersIcon size={14} />
             <span>Настройки</span>
           </button>
-        </nav>
+        </div>
       </header>
 
       {/* Live status feedback */}
@@ -686,7 +682,7 @@ export function VisualSearch() {
       <main className="vs-main">
         {/* Centered Hero: Upload + Crop + Search Controls */}
         <section className="vs-hero" aria-labelledby="vs-hero-title">
-          <header className="vs-hero-header">
+          <header className="vs-hero-header lf-studio-banner lf-studio-banner--search">
             <h1 id="vs-hero-title" className="vs-hero-title">
               Поиск светильника по фотографии
             </h1>
