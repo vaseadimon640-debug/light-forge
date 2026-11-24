@@ -32,13 +32,28 @@ export async function openProjectStore(database = 'light-forge-projects') {
       db.createObjectStore(name, { keyPath: 'project.id' }).createIndex('by-updated-at', 'project.updatedAt');
     },
   });
+  async function save(snapshot: ProjectSnapshot): Promise<ProjectSnapshot> {
+    const validated = validateSnapshot({
+      ...snapshot, project: { ...snapshot.project, updatedAt: new Date().toISOString() },
+    });
+    await store.put(name, validated);
+    return validated;
+  }
+
   return {
-    async save(snapshot: ProjectSnapshot): Promise<ProjectSnapshot> {
-      const validated = validateSnapshot({
-        ...snapshot, project: { ...snapshot.project, updatedAt: new Date().toISOString() },
+    save,
+    async duplicate(id: string): Promise<ProjectSnapshot | undefined> {
+      const snapshot = await store.get(name, id);
+      if (!snapshot) return undefined;
+      return save({
+        ...snapshot,
+        project: {
+          ...snapshot.project,
+          id: crypto.randomUUID(),
+          name: `${snapshot.project.name.slice(0, 111)} — копия`,
+          createdAt: new Date().toISOString(),
+        },
       });
-      await store.put(name, validated);
-      return validated;
     },
     async get(id: string): Promise<ProjectSnapshot | undefined> {
       const snapshot = await store.get(name, id);

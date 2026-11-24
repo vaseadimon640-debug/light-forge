@@ -8,7 +8,6 @@ import {
   canonicalSource,
   importReviewLinks,
   projectFromSearch,
-  reviewSchema,
   searchResponseSchema,
   type ReviewLink,
   type SearchInput,
@@ -60,29 +59,9 @@ import { PhotoCropStage } from './PhotoCropStage';
 import { ResultCard } from './ResultCard';
 import { ChatGptDrawer, LensDrawer, SettingsDrawer } from './VisualSearchDrawers';
 
-const HISTORY_KEY = 'light-forge-visual-search-history';
-const SAVED_KEY = 'light-forge-visual-search-links';
+import { HISTORY_KEY, SAVED_KEY, readHistory, readSavedLinks } from './local-history';
+
 const INITIAL_ACTIVE_CROP: CropRect = { x: 14, y: 10, width: 72, height: 78 };
-
-function readHistory(): string[] {
-  try {
-    const raw: unknown = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]');
-    return Array.isArray(raw)
-      ? raw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).slice(0, 10)
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function readSavedLinks(): ReviewLink[] {
-  try {
-    const raw: unknown = JSON.parse(localStorage.getItem(SAVED_KEY) ?? '[]');
-    return reviewSchema.parse({ results: raw }).results;
-  } catch {
-    return [];
-  }
-}
 
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -189,6 +168,8 @@ export function VisualSearch() {
   }, []);
 
   useEffect(() => {
+    const requestedQuery = new URLSearchParams(window.location.search).get('q');
+    if (requestedQuery) setQuery(requestedQuery.slice(0, 240));
     setHistory(readHistory());
     setSaved(readSavedLinks());
 

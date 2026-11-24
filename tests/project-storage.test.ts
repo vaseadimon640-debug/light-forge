@@ -29,3 +29,25 @@ test('saving, reopening, exporting and importing a project preserves the origina
     reopened.close();
   }
 });
+
+test('duplicating a project assigns a new ID and keeps linked parts and original photos', async () => {
+  const project = createMyline();
+  const bytes = new Uint8Array([12, 34, 56]);
+  project.photos = [{ id: 'primary', name: 'reference.jpg', size: bytes.length, type: 'image/jpeg' }];
+  project.primaryPhotoId = 'primary';
+  const store = await openProjectStore('rfq-duplicate-test');
+  try {
+    await store.save({ project, originals: { primary: new Blob([bytes], { type: 'image/jpeg' }) } });
+    const copy = await store.duplicate(project.id);
+    assert.ok(copy);
+    assert.notEqual(copy.project.id, project.id);
+    assert.equal(copy.project.name, project.name + ' — копия');
+    assert.deepEqual(copy.project.components, project.components);
+    assert.deepEqual(copy.project.mounting, project.mounting);
+    assert.equal(copy.project.primaryPhotoId, 'primary');
+    assert.deepEqual(new Uint8Array(await copy.originals.primary.arrayBuffer()), bytes);
+    assert.equal((await store.get(project.id))?.project.name, project.name);
+    assert.equal((await store.list()).length, 2);
+    assert.equal(await store.duplicate('missing'), undefined);
+  } finally { store.close(); }
+});
