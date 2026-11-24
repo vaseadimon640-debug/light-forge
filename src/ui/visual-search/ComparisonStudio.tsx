@@ -14,10 +14,12 @@ import {
 import {
   extractComparisonSpec,
   extractDisplayHost,
-  formatCropSummary,
-  isFullCrop,
+  formatTransformSummary,
+  isTransformDefault,
   type CropRect,
+  type RotationDeg,
 } from './helpers';
+import { createWorkingPhotoCopy } from './image-processing';
 import { LuminaireVisualPlate } from './LuminaireVisualPlate';
 
 export type ComparisonTab = 'side-by-side' | 'matrix';
@@ -29,6 +31,7 @@ type ComparisonStudioProps = {
   photo?: File;
   photoUrl: string;
   crop: CropRect;
+  rotation?: RotationDeg;
   activeTab: ComparisonTab;
   creatingRfqId: string | null;
   onTabChange: (tab: ComparisonTab) => void;
@@ -55,6 +58,7 @@ export function ComparisonStudio({
   photo,
   photoUrl,
   crop,
+  rotation = 0,
   activeTab,
   creatingRfqId,
   onTabChange,
@@ -73,60 +77,39 @@ export function ComparisonStudio({
     : (items[0]?.id ?? '');
   const focusedItem = items.find(item => item.id === effectiveFocusedId) ?? items[0];
 
-  const hasCrop = !isFullCrop(crop);
+  const hasTransform = !isTransformDefault(crop, rotation);
 
-  // Render an accurate cropped preview URL when user selected a sub-region
+  // Render an accurate rotated/cropped preview URL when user transformed the primary photo
   useEffect(() => {
-    if (!photo || !hasCrop) {
+    if (!photo || !hasTransform) {
       setCroppedUrl('');
       return;
     }
     let cancelled = false;
     let objectUrl = '';
 
-    (async () => {
-      try {
-        const bitmap = await createImageBitmap(photo);
-        try {
-          const sx = Math.round((bitmap.width * crop.x) / 100);
-          const sy = Math.round((bitmap.height * crop.y) / 100);
-          const sw = Math.max(1, Math.min(bitmap.width - sx, Math.round((bitmap.width * crop.width) / 100)));
-          const sh = Math.max(1, Math.min(bitmap.height - sy, Math.round((bitmap.height * crop.height) / 100)));
-          const scale = Math.min(1, 960 / Math.max(sw, sh));
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, Math.round(sw * scale));
-          canvas.height = Math.max(1, Math.round(sh * scale));
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return;
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-          const blob = await new Promise<Blob | null>(resolve =>
-            canvas.toBlob(resolve, 'image/jpeg', 0.9),
-          );
-          if (!blob || cancelled) return;
-          objectUrl = URL.createObjectURL(blob);
-          setCroppedUrl(objectUrl);
-        } finally {
-          bitmap.close();
-        }
-      } catch {
+    void createWorkingPhotoCopy(photo, crop, rotation, 960)
+      .then(copy => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(copy);
+        setCroppedUrl(objectUrl);
+      })
+      .catch(() => {
         if (!cancelled) setCroppedUrl('');
-      }
-    })();
+      });
 
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [photo, crop, hasCrop]);
+  }, [photo, crop, rotation, hasTransform]);
 
   if (items.length === 0) return null;
 
   const availableToAdd = allResults.filter(
     candidate => !items.some(existing => existing.id === candidate.id),
   );
-  const activePhotoSrc = hasCrop && showCroppedPhoto && croppedUrl ? croppedUrl : photoUrl;
+  const activePhotoSrc = hasTransform && showCroppedPhoto && croppedUrl ? croppedUrl : photoUrl;
   const focusedSpec = focusedItem
     ? extractComparisonSpec(focusedItem, selectedVariants[focusedItem.id])
     : null;
@@ -210,7 +193,7 @@ export function ComparisonStudio({
                 <span className="vs-pane-eyebrow">Исходное фото</span>
                 <h3 className="vs-pane-title">{photo ? photo.name : 'Фотография не загружена'}</h3>
               </div>
-              {photo && hasCrop && (
+              {photo && hasTransform && (
                 <div className="lf-segment" role="group" aria-label="Вид исходного фото">
                   <button
                     type="button"
@@ -218,7 +201,7 @@ export function ComparisonStudio({
                     aria-pressed={showCroppedPhoto}
                     onClick={() => setShowCroppedPhoto(true)}
                   >
-                    Фрагмент
+                    Рабочая копия
                   </button>
                   <button
                     type="button"
@@ -226,7 +209,7 @@ export function ComparisonStudio({
                     aria-pressed={!showCroppedPhoto}
                     onClick={() => setShowCroppedPhoto(false)}
                   >
-                    Полное
+                    Оригинал
                   </button>
                 </div>
               )}
@@ -239,9 +222,9 @@ export function ComparisonStudio({
                   alt="Исходное фото светильника для сравнения"
                   className="vs-side-photo-img"
                 />
-                {hasCrop && (
+                {hasTransform && (
                   <span className="vs-side-photo-tag mono">
-                    {showCroppedPhoto ? formatCropSummary(crop) : 'Полный кадр'}
+                    {showCroppedPhoto ? formatTransformSummary(crop, rotation) : 'Оригинал без изменений'}
                   </span>
                 )}
               </div>

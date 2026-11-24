@@ -7,6 +7,7 @@ import {
   CheckIcon,
   ColumnsIcon,
   ExternalLinkIcon,
+  EyeIcon,
   FilePdfIcon,
   LayersIcon,
   SearchIcon,
@@ -31,6 +32,7 @@ type ResultCardProps = {
   featured?: boolean;
   localMatch?: LocalSearchMatch;
   onSelectSku: (sku: string) => void;
+  onOpenDetail?: (result: SearchResult) => void;
   onToggleCompare: (result: SearchResult) => void;
   onFindSimilar: (result: SearchResult) => void;
   onToggleSave: (result: SearchResult) => void;
@@ -47,6 +49,7 @@ export function ResultCard({
   featured = false,
   localMatch,
   onSelectSku,
+  onOpenDetail,
   onToggleCompare,
   onFindSimilar,
   onToggleSave,
@@ -96,7 +99,19 @@ export function ResultCard({
               </>
             )}
           </div>
-          <h3 className="vs-card-title">{result.name}</h3>
+          <h3 className="vs-card-title">
+            {onOpenDetail ? (
+              <button
+                type="button"
+                className="vs-card-title-btn"
+                onClick={() => onOpenDetail(result)}
+              >
+                {result.name}
+              </button>
+            ) : (
+              result.name
+            )}
+          </h3>
           <p className="vs-card-honest">
             {localMeta
               ? localMeta.explanation
@@ -225,9 +240,20 @@ export function ResultCard({
           )}
         </div>
 
-        {/* All 6 Required Actions */}
+        {/* Actions */}
         <div className="vs-card-actions">
           <div className="vs-card-actions-grid">
+            {onOpenDetail && (
+              <button
+                type="button"
+                className="lf-btn lf-btn--sm"
+                onClick={() => onOpenDetail(result)}
+              >
+                <EyeIcon size={13} />
+                <span>Подробнее</span>
+              </button>
+            )}
+
             <a
               href={result.source}
               target="_blank"
@@ -269,11 +295,11 @@ export function ResultCard({
 
             <button
               type="button"
-              className="lf-btn lf-btn--sm vs-action-span"
+              className={`lf-btn lf-btn--sm ${onOpenDetail ? '' : 'vs-action-span'}`}
               onClick={() => onReviewChatGpt(result)}
             >
               <ChatIcon size={13} />
-              <span>Проверить через ChatGPT</span>
+              <span>ChatGPT</span>
             </button>
           </div>
 
@@ -284,7 +310,13 @@ export function ResultCard({
             onClick={() => onCreateRfq(result)}
           >
             <LayersIcon size={15} />
-            <span>{creatingRfq ? 'Открываем Quick RFQ…' : 'Создать запрос фабрике'}</span>
+            <span>
+              {creatingRfq
+                ? 'Открываем Quick RFQ…'
+                : activeVariant
+                  ? `Создать запрос фабрике (${activeVariant.sku})`
+                  : 'Создать запрос фабрике'}
+            </span>
           </button>
         </div>
       </div>

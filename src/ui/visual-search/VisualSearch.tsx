@@ -1,13 +1,11 @@
 'use client';
 
-
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { imageTypes, maxPhotoBytes } from '@/domain/project';
 import { openProjectStore } from '@/storage/projects';
 import {
   canonicalSource,
+  catalogueSearch,
   importReviewLinks,
-  projectFromSearch,
   searchResponseSchema,
   type ReviewLink,
   type SearchInput,
@@ -18,7 +16,6 @@ import {
 import {
   localSearchCapabilitiesSchema,
   localSearchResponseSchema,
-  maxLocalPhotoBytes,
 } from '@/visual-search/local-contract';
 import {
   AlertIcon,
@@ -27,41 +24,76 @@ import {
   ChatIcon,
   ColumnsIcon,
   ExternalLinkIcon,
+  EyeIcon,
   FilePdfIcon,
   LayersIcon,
   LensIcon,
+  RefreshIcon,
   SearchIcon,
   ShieldIcon,
   SlidersIcon,
   SparkIcon,
+  StarIcon,
 } from '../icons';
 import { ComparisonStudio, type ComparisonTab } from './ComparisonStudio';
 import {
+  buildRfqSnapshotFromSearch,
   buildSimilarQuery,
+  clampZoom,
+  DEFAULT_RESULT_FILTERS,
   extractDisplayHost,
+  extractFilterOptions,
+  filterAndSortResults,
   filterLightingConfigurations,
   formatGeminiWarning,
   formatLanguageLabel,
   formatLightDirection,
+  formatTransformSummary,
   FULL_CROP,
   groupSearchResults,
+  isDefaultResultFilters,
   isFullCrop,
+  isTransformDefault,
   mergeSearchResults,
   readResultSpecifications,
   resolveLocalMatchResult,
+  rotateCropRect,
+  rotateDegrees,
   shouldUseOriginalForLocalSearch,
+  validateIncomingPhotos,
   type CropRect,
   type LocalSearchCapabilities,
   type LocalSearchResponse,
+  type ResultFilterState,
+  type ResultViewMode,
+  type RotationDeg,
+  type SearchPhotoItem,
 } from './helpers';
+import { createWorkingPhotoCopy } from './image-processing';
+import { HISTORY_KEY, SAVED_KEY, readHistory, readSavedLinks } from './local-history';
 import { LocalMatchesSection } from './LocalMatchesSection';
 import { PhotoCropStage } from './PhotoCropStage';
+import { ProductDetailView } from './ProductDetailView';
 import { ResultCard } from './ResultCard';
+import { ResultsTableView } from './ResultsTableView';
+import { ResultsToolbar } from './ResultsToolbar';
 import { ChatGptDrawer, LensDrawer, SettingsDrawer } from './VisualSearchDrawers';
 
-import { HISTORY_KEY, SAVED_KEY, readHistory, readSavedLinks } from './local-history';
-
 const INITIAL_ACTIVE_CROP: CropRect = { x: 14, y: 10, width: 72, height: 78 };
+
+type SearchRunContext = {
+  query: string;
+  mode: SearchInput['mode'];
+  photoId?: string;
+  photoName?: string;
+  photoTransform?: string;
+  photoCropKey?: string;
+  photoRotation?: RotationDeg;
+  usedWorkingCopy: boolean;
+  photoCount: number;
+  ranLocalIndex: boolean;
+  ranGemini: boolean;
+};
 
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -74,54 +106,17 @@ function triggerDownload(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-async function encodeCanvasJpeg(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
-  return new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob(
-      value => (value ? resolve(value) : reject(new Error('Не удалось создать копию изображения.'))),
-      'image/jpeg',
-      quality,
-    ),
-  );
-}
-
-async function createOptimizedPhoto(file: File, crop: CropRect): Promise<File> {
-  const bitmap = await createImageBitmap(file);
-  try {
-    const x = Math.round((bitmap.width * crop.x) / 100);
-    const y = Math.round((bitmap.height * crop.y) / 100);
-    const width = Math.max(
-      1,
-      Math.min(bitmap.width - x, Math.round((bitmap.width * crop.width) / 100)),
-    );
-    const height = Math.max(
-      1,
-      Math.min(bitmap.height - y, Math.round((bitmap.height * crop.height) / 100)),
-    );
-    const scale = Math.min(1, 1280 / Math.max(width, height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(width * scale));
-    canvas.height = Math.max(1, Math.round(height * scale));
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Не удалось обработать выделенную область.');
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(bitmap, x, y, width, height, 0, 0, canvas.width, canvas.height);
-    let blob = await encodeCanvasJpeg(canvas, 0.86);
-    if (blob.size > maxLocalPhotoBytes) {
-      blob = await encodeCanvasJpeg(canvas, 0.72);
-    }
-    return new File([blob], 'light-forge-search.jpg', { type: 'image/jpeg' });
-  } finally {
-    bitmap.close();
-  }
+function cropKey(crop: CropRect): string {
+  return `${crop.x},${crop.y},${crop.width},${crop.height}`;
 }
 
 export function VisualSearch() {
-  // Photo & crop state (user original is never overwritten)
-  const [photo, setPhoto] = useState<File | undefined>();
-  const [photoUrl, setPhotoUrl] = useState('');
-  const [crop, setCrop] = useState<CropRect>(FULL_CROP);
-  const [cropActive, setCropActive] = useState(false);
+  // Multi-photo gallery state (originals are never overwritten)
+  const [photos, setPhotos] = useState<SearchPhotoItem[]>([]);
+  const [primaryPhotoId, setPrimaryPhotoId] = useState<string | null>(null);
+  const [activePhotoId, setActivePhotoId] = useState<string | null>(null);
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+  const photoUrlCacheRef = useRef<Map<string, { file: File; url: string }>>(new Map());
 
   // Search controls
   const [query, setQuery] = useState('');
@@ -134,9 +129,16 @@ export function VisualSearch() {
   const [lastResponse, setLastResponse] = useState<SearchResponse | undefined>();
   const [localResponse, setLocalResponse] = useState<LocalSearchResponse | undefined>();
   const [localUsedCrop, setLocalUsedCrop] = useState(false);
+  const [lastSearchContext, setLastSearchContext] = useState<SearchRunContext | undefined>();
   const [imported, setImported] = useState<SearchResult[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const [saved, setSaved] = useState<ReviewLink[]>([]);
+
+  // Filtering, sorting, view mode & product detail view
+  const [filters, setFilters] = useState<ResultFilterState>(DEFAULT_RESULT_FILTERS);
+  const [viewMode, setViewMode] = useState<ResultViewMode>('grid');
+  const [detailResultId, setDetailResultId] = useState<string | null>(null);
+  const [directDetailResult, setDirectDetailResult] = useState<SearchResult | undefined>();
 
   // Per-card selections & comparison studio
   const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({});
@@ -159,17 +161,65 @@ export function VisualSearch() {
   const localCapabilitiesRequest = useRef<Promise<LocalSearchCapabilities | undefined> | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const primaryPhoto = useMemo(
+    () => photos.find(item => item.id === primaryPhotoId) ?? photos[0],
+    [photos, primaryPhotoId],
+  );
+  const activePhoto = useMemo(
+    () => photos.find(item => item.id === activePhotoId) ?? primaryPhoto,
+    [photos, activePhotoId, primaryPhoto],
+  );
+
   const showNotice = useCallback((message: string) => {
     setNotice(message);
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
     if (message) {
-      noticeTimerRef.current = setTimeout(() => setNotice(''), 4200);
+      noticeTimerRef.current = setTimeout(() => setNotice(''), 4400);
     }
   }, []);
 
+  // Maintain stable Object URLs for uploaded original files without leaking memory
   useEffect(() => {
-    const requestedQuery = new URLSearchParams(window.location.search).get('q');
+    const cache = photoUrlCacheRef.current;
+    const nextIds = new Set(photos.map(item => item.id));
+    const nextUrls: Record<string, string> = {};
+
+    for (const item of photos) {
+      const existing = cache.get(item.id);
+      if (existing && existing.file === item.file) {
+        nextUrls[item.id] = existing.url;
+      } else {
+        if (existing) URL.revokeObjectURL(existing.url);
+        const url = URL.createObjectURL(item.file);
+        cache.set(item.id, { file: item.file, url });
+        nextUrls[item.id] = url;
+      }
+    }
+
+    for (const [id, entry] of cache.entries()) {
+      if (!nextIds.has(id)) {
+        URL.revokeObjectURL(entry.url);
+        cache.delete(id);
+      }
+    }
+
+    setPhotoUrls(nextUrls);
+  }, [photos]);
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const requestedQuery = urlParams.get('q');
+    const requestedModel = urlParams.get('model');
     if (requestedQuery) setQuery(requestedQuery.slice(0, 240));
+    if (requestedModel) {
+      // Allow opening a documented starter catalogue model directly by ?model=<id>
+      const starterMatches = catalogueSearch('ring', 'deep');
+      const direct = starterMatches.find(item => item.id === requestedModel);
+      if (direct) {
+        setDirectDetailResult(direct);
+        setDetailResultId(direct.id);
+      }
+    }
     setHistory(readHistory());
     setSaved(readSavedLinks());
 
@@ -197,28 +247,177 @@ export function VisualSearch() {
       })
       .catch(() => undefined);
 
+    const onPopState = () => {
+      const modelId = new URLSearchParams(window.location.search).get('model');
+      setDetailResultId(modelId);
+    };
+    window.addEventListener('popstate', onPopState);
+
+    const urlCache = photoUrlCacheRef.current;
     return () => {
+      window.removeEventListener('popstate', onPopState);
       controller.abort();
       searchAbortRef.current?.abort();
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+      for (const entry of urlCache.values()) {
+        URL.revokeObjectURL(entry.url);
+      }
+      urlCache.clear();
     };
   }, []);
 
+  const addPhotos = useCallback(
+    (incoming: FileList | File[] | null, source: 'upload' | 'clipboard' = 'upload') => {
+      if (!incoming) return;
+      const list = Array.from(incoming);
+      if (list.length === 0) return;
+
+      const { accepted, errors } = validateIncomingPhotos(
+        photos.map(item => item.file),
+        list,
+        source,
+      );
+
+      if (accepted.length > 0) {
+        const created: SearchPhotoItem[] = accepted.map(file => ({
+          id: crypto.randomUUID(),
+          file,
+          crop: FULL_CROP,
+          rotation: 0,
+          zoom: 1,
+          cropActive: false,
+        }));
+
+        setAllowGemini(false);
+        setPhotos(prev => [...prev, ...created]);
+        setActivePhotoId(created[0].id);
+        setPrimaryPhotoId(prev => prev ?? created[0].id);
+
+        if (errors.length > 0) {
+          showNotice(`${errors[0]} (добавлено фото: ${created.length})`);
+        } else if (source === 'clipboard') {
+          showNotice(
+            created.length === 1
+              ? `Вставлено фото из буфера: ${created[0].file.name}`
+              : `Вставлено фото из буфера: ${created.length}`,
+          );
+        } else {
+          showNotice(
+            created.length === 1
+              ? `Загружено фото: ${created[0].file.name}`
+              : `Загружено фотографий: ${created.length}`,
+          );
+        }
+      } else if (errors.length > 0) {
+        showNotice(errors[0]);
+      }
+    },
+    [photos, showNotice],
+  );
+
+  // Global clipboard paste handler (Ctrl+V / Cmd+V) for images
   useEffect(() => {
-    if (!photo) {
-      setPhotoUrl('');
+    function handleWindowPaste(event: ClipboardEvent) {
+      const clipboard = event.clipboardData;
+      if (!clipboard) return;
+      const imageFiles: File[] = [];
+      for (const item of Array.from(clipboard.items ?? [])) {
+        if (item.kind === 'file' && item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) imageFiles.push(file);
+        }
+      }
+      if (imageFiles.length === 0 && clipboard.files?.length) {
+        for (const file of Array.from(clipboard.files)) {
+          if (file.type.startsWith('image/')) imageFiles.push(file);
+        }
+      }
+      if (imageFiles.length > 0) {
+        event.preventDefault();
+        addPhotos(imageFiles, 'clipboard');
+      }
+    }
+
+    window.addEventListener('paste', handleWindowPaste);
+    return () => window.removeEventListener('paste', handleWindowPaste);
+  }, [addPhotos]);
+
+  const handlePasteFromClipboard = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.read) {
+      showNotice('Нажмите Ctrl+V / ⌘V на странице, чтобы вставить изображение из буфера.');
       return;
     }
-    const url = URL.createObjectURL(photo);
-    setPhotoUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [photo]);
+    try {
+      const items = await navigator.clipboard.read();
+      const files: File[] = [];
+      let index = photos.length + 1;
+      for (const item of items) {
+        const mime = item.types.find(
+          type => type === 'image/png' || type === 'image/jpeg' || type === 'image/webp',
+        );
+        if (!mime) continue;
+        const blob = await item.getType(mime);
+        const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+        files.push(new File([blob], `clipboard-photo-${index}.${ext}`, { type: mime }));
+        index += 1;
+      }
+      if (files.length === 0) {
+        showNotice('В буфере обмена не найдено изображение JPEG, PNG или WebP.');
+        return;
+      }
+      addPhotos(files, 'clipboard');
+    } catch {
+      showNotice('Браузер ограничил чтение буфера — нажмите Ctrl+V / ⌘V на странице.');
+    }
+  }, [addPhotos, photos.length, showNotice]);
+
+  const savedUrls = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of saved) {
+      try {
+        set.add(canonicalSource(item.url));
+      } catch {
+        set.add(item.url);
+      }
+    }
+    return set;
+  }, [saved]);
+
+  const isResultSaved = useCallback(
+    (result: SearchResult): boolean => {
+      try {
+        return savedUrls.has(canonicalSource(result.source));
+      } catch {
+        return savedUrls.has(result.source);
+      }
+    },
+    [savedUrls],
+  );
 
   const results = useMemo(
     () => mergeSearchResults(lastResponse?.results ?? [], imported),
     [lastResponse, imported],
   );
-  const sections = useMemo(() => groupSearchResults(results), [results]);
+
+  const filterOptions = useMemo(() => extractFilterOptions(results), [results]);
+
+  const filteredResults = useMemo(
+    () => filterAndSortResults(results, filters, isResultSaved),
+    [results, filters, isResultSaved],
+  );
+
+  const sections = useMemo(() => groupSearchResults(filteredResults), [filteredResults]);
+
+  const localMatchesByResultId = useMemo(() => {
+    const map = new Map<string, LocalSearchResponse['matches'][number]>();
+    for (const match of localResponse?.matches ?? []) {
+      const linked = resolveLocalMatchResult(match);
+      if (linked && !map.has(linked.id)) {
+        map.set(linked.id, match);
+      }
+    }
+    return map;
+  }, [localResponse]);
 
   const localLinkedResults = useMemo(() => {
     const map = new Map<string, SearchResult>();
@@ -253,8 +452,16 @@ export function VisualSearch() {
     [compareIds, allComparableResults],
   );
 
+  const detailResult = useMemo(() => {
+    if (!detailResultId) return undefined;
+    return (
+      allComparableResults.find(item => item.id === detailResultId) ??
+      (directDetailResult?.id === detailResultId ? directDetailResult : undefined)
+    );
+  }, [detailResultId, allComparableResults, directDetailResult]);
+
   useEffect(() => {
-    if (comparedItems.length === 0) {
+    if (comparedItems.length === 0 || detailResult) {
       setCompareInView(false);
       return;
     }
@@ -268,61 +475,119 @@ export function VisualSearch() {
     );
     observer.observe(target);
     return () => observer.disconnect();
-  }, [comparedItems.length]);
-
-  const savedUrls = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of saved) {
-      try {
-        set.add(canonicalSource(item.url));
-      } catch {
-        set.add(item.url);
-      }
-    }
-    return set;
-  }, [saved]);
+  }, [comparedItems.length, detailResult]);
 
   const hasLocalMatches = (localResponse?.matches.length ?? 0) > 0;
   const hasResultsArea = Boolean(lastResponse || localResponse || imported.length > 0);
   const hasAnyMatches = results.length > 0 || hasLocalMatches;
   const geminiWarningText = formatGeminiWarning(lastResponse?.warning);
 
-  function resetPhotoSearch() {
-    searchAbortRef.current?.abort();
-    setLoading(false);
+  const isPhotoContextStale = Boolean(
+    lastSearchContext &&
+      primaryPhoto &&
+      (lastSearchContext.photoId !== primaryPhoto.id ||
+        lastSearchContext.photoRotation !== primaryPhoto.rotation ||
+        lastSearchContext.photoCropKey !== cropKey(primaryPhoto.crop)),
+  );
+
+  function handleSetPrimaryPhoto(id: string) {
+    const target = photos.find(item => item.id === id);
+    if (!target) return;
     setAllowGemini(false);
-    setLastResponse(undefined);
-    setLocalResponse(undefined);
-    setLocalUsedCrop(false);
+    setPrimaryPhotoId(id);
+    setActivePhotoId(id);
+    showNotice(`Основное фото для поиска: ${target.file.name}`);
   }
 
-  function choosePhoto(files: FileList | null) {
-    const file = files?.[0];
-    if (!file) return;
-    if (!imageTypes.some(type => type === file.type) || file.size > maxPhotoBytes || !file.size) {
-      showNotice('Выберите изображение JPEG, PNG или WebP размером до 12 МБ.');
+  function handleRemovePhoto(id: string) {
+    const remaining = photos.filter(item => item.id !== id);
+    setPhotos(remaining);
+    setAllowGemini(false);
+
+    if (remaining.length === 0) {
+      searchAbortRef.current?.abort();
+      setLoading(false);
+      setPrimaryPhotoId(null);
+      setActivePhotoId(null);
+      setLocalResponse(undefined);
+      setLocalUsedCrop(false);
       return;
     }
-    resetPhotoSearch();
-    setPhoto(file);
-    setCrop(FULL_CROP);
-    setCropActive(false);
-    setNotice('');
-  }
 
-  function clearPhoto() {
-    resetPhotoSearch();
-    setPhoto(undefined);
-    setCrop(FULL_CROP);
-    setCropActive(false);
-  }
-
-  function toggleCrop() {
-    if (!cropActive && isFullCrop(crop)) {
-      setCrop(INITIAL_ACTIVE_CROP);
+    const nextPrimary = primaryPhotoId === id ? remaining[0].id : primaryPhotoId;
+    setPrimaryPhotoId(nextPrimary);
+    if (activePhotoId === id) {
+      setActivePhotoId(nextPrimary ?? remaining[0].id);
     }
-    setCropActive(prev => !prev);
   }
+
+  function updatePhotoItem(id: string, updater: (item: SearchPhotoItem) => SearchPhotoItem) {
+    setPhotos(prev => prev.map(item => (item.id === id ? updater(item) : item)));
+    if (id === primaryPhoto?.id) {
+      setAllowGemini(false);
+    }
+  }
+
+  function handleCropChange(id: string, nextCrop: CropRect) {
+    updatePhotoItem(id, item => ({ ...item, crop: nextCrop }));
+  }
+
+  function handleToggleCrop(id: string) {
+    updatePhotoItem(id, item => ({
+      ...item,
+      crop: !item.cropActive && isFullCrop(item.crop) ? INITIAL_ACTIVE_CROP : item.crop,
+      cropActive: !item.cropActive,
+    }));
+  }
+
+  function handleRotatePhoto(id: string, delta: 90 | -90) {
+    updatePhotoItem(id, item => ({
+      ...item,
+      rotation: rotateDegrees(item.rotation, delta),
+      crop: rotateCropRect(item.crop, delta),
+    }));
+  }
+
+  function handleZoomChange(id: string, nextZoom: number) {
+    setPhotos(prev =>
+      prev.map(item => (item.id === id ? { ...item, zoom: clampZoom(nextZoom) } : item)),
+    );
+  }
+
+  function handleResetTransform(id: string) {
+    updatePhotoItem(id, item => ({
+      ...item,
+      crop: FULL_CROP,
+      rotation: 0,
+      zoom: 1,
+      cropActive: false,
+    }));
+  }
+
+  const openDetailView = useCallback((result: SearchResult) => {
+    setDetailResultId(result.id);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('model', result.id);
+      window.history.pushState({ model: result.id }, '', url);
+    } catch {
+      // Ignore history API issues
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const closeDetailView = useCallback(() => {
+    setDetailResultId(null);
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('model')) {
+        url.searchParams.delete('model');
+        window.history.replaceState(window.history.state, '', url);
+      }
+    } catch {
+      // Ignore history API issues
+    }
+  }, []);
 
   const runSearch = useCallback(
     async (
@@ -331,7 +596,8 @@ export function VisualSearch() {
       photoConsent = false,
       runLocalPhoto = false,
     ) => {
-      if (!targetQuery.trim() && !photo) return;
+      const searchPhoto = primaryPhoto;
+      if (!targetQuery.trim() && !searchPhoto) return;
 
       searchAbortRef.current?.abort();
       const controller = new AbortController();
@@ -339,18 +605,40 @@ export function VisualSearch() {
 
       setLoading(true);
       setNotice('');
+      setDetailResultId(null);
+      setFilters(DEFAULT_RESULT_FILTERS);
       // Gemini photo consent is strictly single-use per main form submission (PR #13).
       setAllowGemini(false);
+
+      let ranLocalIndex = false;
+      let usedWorkingCopy = false;
+
       try {
-        const shouldRunGemini = Boolean(gemini?.enabled && photoConsent && photo);
+        const shouldRunGemini = Boolean(gemini?.enabled && photoConsent && searchPhoto);
+
         // Local photo search runs offline without external AI APIs or Gemini consent.
         const localTask = (async () => {
-          if (!runLocalPhoto || !photo) return;
-          const available = localCapabilities?.available ?? (await localCapabilitiesRequest.current)?.available;
+          if (!runLocalPhoto || !searchPhoto) return;
+          const available =
+            localCapabilities?.available ?? (await localCapabilitiesRequest.current)?.available;
           if (!available || controller.signal.aborted) return;
-          const useOriginal = shouldUseOriginalForLocalSearch(photo, crop);
-          const localFile = useOriginal ? photo : await createOptimizedPhoto(photo, crop);
+
+          const useOriginal = shouldUseOriginalForLocalSearch(
+            searchPhoto.file,
+            searchPhoto.crop,
+            searchPhoto.rotation,
+          );
+          const localFile = useOriginal
+            ? searchPhoto.file
+            : await createWorkingPhotoCopy(
+                searchPhoto.file,
+                searchPhoto.crop,
+                searchPhoto.rotation,
+              );
           if (controller.signal.aborted) return;
+
+          ranLocalIndex = true;
+          usedWorkingCopy = usedWorkingCopy || !useOriginal;
 
           const form = new FormData();
           form.set(
@@ -376,6 +664,7 @@ export function VisualSearch() {
             setLocalCapabilities({ available: false, referenceCount: 0 });
             setLocalResponse(undefined);
             setLocalUsedCrop(false);
+            ranLocalIndex = false;
             return;
           }
           if (!res.ok) {
@@ -395,9 +684,14 @@ export function VisualSearch() {
           };
 
           let requestInit: RequestInit;
-          if (shouldRunGemini && photo) {
-            const copy = await createOptimizedPhoto(photo, crop);
+          if (shouldRunGemini && searchPhoto) {
+            const copy = await createWorkingPhotoCopy(
+              searchPhoto.file,
+              searchPhoto.crop,
+              searchPhoto.rotation,
+            );
             if (controller.signal.aborted) return;
+            usedWorkingCopy = true;
             input.photo = {
               id: 'selected-photo',
               name: copy.name,
@@ -450,6 +744,22 @@ export function VisualSearch() {
           );
         }
 
+        setLastSearchContext({
+          query: targetQuery.trim(),
+          mode: targetMode,
+          photoId: searchPhoto?.id,
+          photoName: searchPhoto?.file.name,
+          photoTransform: searchPhoto
+            ? formatTransformSummary(searchPhoto.crop, searchPhoto.rotation)
+            : undefined,
+          photoCropKey: searchPhoto ? cropKey(searchPhoto.crop) : undefined,
+          photoRotation: searchPhoto?.rotation,
+          usedWorkingCopy,
+          photoCount: photos.length,
+          ranLocalIndex,
+          ranGemini: shouldRunGemini,
+        });
+
         const cleanTerm = targetQuery.trim();
         if (cleanTerm) {
           setHistory(prev => {
@@ -471,7 +781,7 @@ export function VisualSearch() {
         }
       }
     },
-    [crop, gemini?.enabled, localCapabilities?.available, mode, photo, query, showNotice],
+    [gemini?.enabled, localCapabilities?.available, mode, photos.length, primaryPhoto, query, showNotice],
   );
 
   function handleSearchSubmit(event: FormEvent) {
@@ -481,6 +791,7 @@ export function VisualSearch() {
 
   function handleFindSimilar(result: SearchResult) {
     const similarQuery = buildSimilarQuery(result);
+    closeDetailView();
     setQuery(similarQuery);
     setMode('deep');
     void runSearch(similarQuery, 'deep', false, false);
@@ -490,6 +801,7 @@ export function VisualSearch() {
   function handleSearchByTitle(title: string) {
     const clean = title.trim();
     if (!clean) return;
+    closeDetailView();
     setQuery(clean);
     void runSearch(clean, mode, false, false);
   }
@@ -519,7 +831,8 @@ export function VisualSearch() {
       });
       showNotice('Удалено из сохранённых.');
     } else {
-      const title = [result.brand, result.name].filter(Boolean).join(' ').slice(0, 180) || result.name;
+      const title =
+        [result.brand, result.name].filter(Boolean).join(' ').slice(0, 180) || result.name;
       updated = [
         ...saved.filter(item => item.url !== result.source),
         { url: result.source, title },
@@ -560,6 +873,7 @@ export function VisualSearch() {
   }
 
   function scrollToComparison(tab?: ComparisonTab) {
+    if (detailResult) closeDetailView();
     if (tab) setCompareTab(tab);
     requestAnimationFrame(() => {
       document.getElementById('vs-comparison-studio')?.scrollIntoView({
@@ -569,20 +883,22 @@ export function VisualSearch() {
     });
   }
 
-  async function handleDownloadLensCopy() {
-    if (!photo) return;
+  async function handleDownloadLensCopy(targetId?: string) {
+    const target = (targetId ? photos.find(item => item.id === targetId) : primaryPhoto) ?? primaryPhoto;
+    if (!target) return;
     try {
-      const copy = await createOptimizedPhoto(photo, crop);
+      const copy = await createWorkingPhotoCopy(target.file, target.crop, target.rotation);
       triggerDownload(copy, copy.name);
-      showNotice('Оптимизированная копия для Google Lens скачана.');
+      showNotice('Рабочая копия для Google Lens скачана.');
     } catch {
       showNotice('Не удалось подготовить копию изображения.');
     }
   }
 
-  function handleDownloadOriginal() {
-    if (!photo) return;
-    triggerDownload(photo, photo.name);
+  function handleDownloadOriginal(targetId?: string) {
+    const target = (targetId ? photos.find(item => item.id === targetId) : primaryPhoto) ?? primaryPhoto;
+    if (!target) return;
+    triggerDownload(target.file, target.file.name);
   }
 
   async function handleCreateRfq(result: SearchResult) {
@@ -590,13 +906,14 @@ export function VisualSearch() {
     try {
       const chosenSku = selectedVariants[result.id];
       const chosenVariant = result.variants?.find(item => item.sku === chosenSku);
-      const snapshot = projectFromSearch(result, chosenVariant, photo);
+      const snapshot = buildRfqSnapshotFromSearch(result, chosenVariant, photos, primaryPhoto?.id);
       const store = await openProjectStore();
       try {
         await store.save(snapshot);
       } finally {
         store.close();
       }
+      window.dispatchEvent(new Event('light-forge-project-saved'));
       window.location.assign(`/?rfqProject=${encodeURIComponent(snapshot.project.id)}`);
     } catch {
       setCreatingRfqId(null);
@@ -604,13 +921,7 @@ export function VisualSearch() {
     }
   }
 
-  function isResultSaved(result: SearchResult): boolean {
-    try {
-      return savedUrls.has(canonicalSource(result.source));
-    } catch {
-      return savedUrls.has(result.source);
-    }
-  }
+  const primaryPhotoUrl = primaryPhoto ? (photoUrls[primaryPhoto.id] ?? '') : '';
 
   return (
     <div className="lf-shell vs-shell">
@@ -659,735 +970,951 @@ export function VisualSearch() {
       )}
 
       <main className="vs-main">
-        {/* Centered Hero: Upload + Crop + Search Controls */}
-        <section className="vs-hero" aria-labelledby="vs-hero-title">
-          <header className="vs-hero-header lf-studio-banner lf-studio-banner--search">
-            <h1 id="vs-hero-title" className="vs-hero-title">
-              Поиск светильника по фотографии
-            </h1>
-            <p className="vs-hero-sub">
-              Загрузите фото, выделите светильник и найдите оригинал, похожие модели и техпаспорт для запроса фабрике.
-            </p>
-          </header>
-
-          <div className="vs-studio-card">
-            <PhotoCropStage
-              photo={photo}
-              photoUrl={photoUrl}
-              crop={crop}
-              cropActive={cropActive}
-              onChoosePhoto={choosePhoto}
-              onClearPhoto={clearPhoto}
-              onCropChange={setCrop}
-              onToggleCrop={toggleCrop}
-              onDownloadLensCopy={() => void handleDownloadLensCopy()}
-              onDownloadOriginal={handleDownloadOriginal}
-            />
-
-            <form className="vs-search-bar" onSubmit={handleSearchSubmit}>
-              <div className="vs-search-input-wrap">
-                <span className="vs-search-input-icon" aria-hidden="true">
-                  <SearchIcon size={16} />
-                </span>
-                <input
-                  id="vs-query-input"
-                  type="text"
-                  className="vs-search-input"
-                  aria-label="Название, артикул или видимые признаки светильника"
-                  placeholder="Название, артикул или описание (например, Emmemobili MYLINE, ICBA02 или латунные кольца)"
-                  value={query}
-                  maxLength={240}
-                  onChange={event => setQuery(event.target.value)}
-                />
-              </div>
-
-              <div className="vs-search-controls-row">
-                <div
-                  className="lf-segment vs-mode-switch"
-                  role="group"
-                  aria-label="Режим поиска"
-                >
-                  <button
-                    id="vs-mode-standard"
-                    type="button"
-                    className={`lf-segment-btn ${mode === 'standard' ? 'lf-segment-btn--active' : ''}`}
-                    aria-pressed={mode === 'standard'}
-                    onClick={() => setMode('standard')}
-                  >
-                    Быстрый поиск
-                  </button>
-                  <button
-                    id="vs-mode-deep"
-                    type="button"
-                    className={`lf-segment-btn ${mode === 'deep' ? 'lf-segment-btn--active' : ''}`}
-                    aria-pressed={mode === 'deep'}
-                    onClick={() => setMode('deep')}
-                  >
-                    <SparkIcon size={13} />
-                    <span>Глубокий поиск</span>
-                  </button>
-                </div>
-
-                <button
-                  id="vs-search-submit"
-                  type="submit"
-                  className="lf-btn lf-btn--primary vs-search-submit"
-                  disabled={loading || (!query.trim() && !photo)}
-                >
-                  <SearchIcon size={15} />
-                  <span>{loading ? 'Ищем светильник…' : 'Найти оригинал и аналоги'}</span>
-                </button>
-              </div>
-
-              {/* Explicit user consent shown ONLY when server Gemini Free Tier is enabled */}
-              {gemini?.enabled && photo && (
-                <label className="vs-consent-inline">
-                  <input
-                    id="vs-gemini-consent"
-                    type="checkbox"
-                    checked={allowGemini}
-                    onChange={event => setAllowGemini(event.target.checked)}
-                  />
-                  <span>
-                    Отправить копию фото в Gemini для этого поиска (оригинал остаётся на вашем устройстве)
-                  </span>
-                </label>
-              )}
-
-              <div className="vs-hero-footer">
-                <div className="vs-quick-tools">
-                  <button
-                    id="vs-open-lens-btn"
-                    type="button"
-                    className="lf-btn lf-btn--sm lf-btn--subtle"
-                    onClick={() => setLensOpen(true)}
-                  >
-                    <LensIcon size={14} />
-                    <span>Google Lens</span>
-                  </button>
-                  <button
-                    id="vs-open-chatgpt-btn"
-                    type="button"
-                    className="lf-btn lf-btn--sm lf-btn--subtle"
-                    onClick={() => {
-                      setChatGptFocused(undefined);
-                      setChatGptOpen(true);
-                    }}
-                  >
-                    <ChatIcon size={14} />
-                    <span>Проверить через ChatGPT</span>
-                  </button>
-                  {saved.length > 0 && (
-                    <button
-                      type="button"
-                      className="lf-btn lf-btn--sm lf-btn--subtle"
-                      onClick={() => handleAddLinks(saved)}
-                    >
-                      <BookmarkIcon size={13} filled />
-                      <span>Сохранённые ({saved.length})</span>
-                    </button>
-                  )}
-                </div>
-
-                {history.length > 0 && (
-                  <div className="vs-recent-strip" aria-label="Недавние запросы">
-                    <span className="vs-recent-label">Недавние:</span>
-                    {history.slice(0, 4).map(term => (
-                      <button
-                        key={term}
-                        type="button"
-                        className="vs-recent-chip"
-                        onClick={() => {
-                          setQuery(term);
-                          void runSearch(term, mode);
-                        }}
-                      >
-                        {term}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </form>
-          </div>
-        </section>
-
-        {/* Results Workspace */}
-        {hasResultsArea && (
-          <div className="vs-results-flow">
-            {/* Honest provenance & verification banner */}
-            <div className="vs-status-strip">
-              <div className="vs-status-main">
-                <ShieldIcon size={16} className="vs-status-icon" />
-                <div>
-                  <strong>Original not verified</strong>
-                  <span>
-                    {' '}
-                    — запись каталога подтверждает изделие производителя, но совпадение с вашей фотографией требует визуальной проверки по официальной карточке и техпаспорту.
-                  </span>
-                </div>
-              </div>
-
-              {lastResponse && lastResponse.links.length > 0 && (
-                <div className="vs-ext-links" aria-label="Поиск по каталогам в Google">
-                  <span className="vs-ext-label">Поиск в вебе:</span>
-                  {lastResponse.links.map(link => (
-                    <a
-                      key={link.language}
-                      href={link.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="vs-ext-pill"
-                    >
-                      <span>{formatLanguageLabel(link.language)}</span>
-                      <ExternalLinkIcon size={11} />
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {lastResponse && lastResponse.traits.length > 0 && (
-              <div className="vs-traits-bar">
-                <span className="vs-traits-label">Видимые признаки по фото:</span>
-                <div className="vs-traits-list">
-                  {lastResponse.traits.map(trait => (
-                    <span key={trait} className="lf-badge lf-badge--accent">
-                      {trait}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {geminiWarningText && (
-              <div className="vs-warning-banner" role="status">
-                <AlertIcon size={16} />
-                <span>{geminiWarningText}</span>
-              </div>
-            )}
-
-            {localResponse && (
-              <LocalMatchesSection
-                matches={localResponse.matches}
-                usedCrop={localUsedCrop}
-                selectedVariants={selectedVariants}
-                compareIds={compareIds}
-                creatingRfqId={creatingRfqId}
-                isResultSaved={isResultSaved}
-                onSelectSku={(resultId, sku) =>
-                  setSelectedVariants(prev => ({ ...prev, [resultId]: sku }))
-                }
-                onToggleCompare={handleToggleCompare}
-                onFindSimilar={handleFindSimilar}
-                onSearchByTitle={handleSearchByTitle}
-                onToggleSave={handleToggleSave}
-                onReviewChatGpt={target => {
-                  setChatGptFocused(target);
-                  setChatGptOpen(true);
-                }}
-                onCreateRfq={target => void handleCreateRfq(target)}
-                onOpenLens={() => setLensOpen(true)}
-              />
-            )}
-
-            {/* Empty / No results state */}
-            {!hasAnyMatches ? (
-              <section className="vs-empty-results" aria-live="polite">
-                <h2>Совпадений в каталоге пока не найдено</h2>
-                <p>
-                  Уточните название, артикул или материалы светильника, переключитесь на глубокий поиск или найдите страницу товара через Google Lens и добавьте ссылку сюда.
+        {detailResult ? (
+          <ProductDetailView
+            result={detailResult}
+            selectedSku={selectedVariants[detailResult.id] ?? ''}
+            isCompared={compareIds.includes(detailResult.id)}
+            isSaved={isResultSaved(detailResult)}
+            creatingRfq={creatingRfqId === detailResult.id}
+            localMatch={localMatchesByResultId.get(detailResult.id)}
+            photos={photos}
+            photoUrls={photoUrls}
+            primaryPhotoId={primaryPhoto?.id ?? null}
+            onBack={closeDetailView}
+            onSelectSku={sku =>
+              setSelectedVariants(prev => ({ ...prev, [detailResult.id]: sku }))
+            }
+            onToggleCompare={handleToggleCompare}
+            onFindSimilar={handleFindSimilar}
+            onToggleSave={handleToggleSave}
+            onReviewChatGpt={target => {
+              setChatGptFocused(target);
+              setChatGptOpen(true);
+            }}
+            onCreateRfq={target => void handleCreateRfq(target)}
+          />
+        ) : (
+          <>
+            {/* Centered Hero: Upload + Multi-photo + Rotate/Zoom/Crop + Search Controls */}
+            <section className="vs-hero" aria-labelledby="vs-hero-title">
+              <header className="vs-hero-header lf-studio-banner lf-studio-banner--search">
+                <h1 id="vs-hero-title" className="vs-hero-title">
+                  Поиск светильника по фотографии
+                </h1>
+                <p className="vs-hero-sub">
+                  Загрузите или вставьте фото, поверните и выделите светильник — найдите официальную карточку, аналоги и техпаспорт для Quick RFQ.
                 </p>
-                <div className="vs-empty-actions">
-                  {mode === 'standard' && (
-                    <button
-                      type="button"
-                      className="lf-btn lf-btn--primary"
-                      onClick={() => {
-                        setMode('deep');
-                        void runSearch(query, 'deep', false, false);
-                      }}
-                    >
-                      <SparkIcon size={14} />
-                      <span>Попробовать глубокий поиск</span>
-                    </button>
-                  )}
-                  <button type="button" className="lf-btn" onClick={() => setLensOpen(true)}>
-                    <LensIcon size={14} />
-                    <span>Открыть Google Lens</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="lf-btn"
-                    onClick={() => {
-                      setChatGptFocused(undefined);
-                      setChatGptOpen(true);
-                    }}
-                  >
-                    <ChatIcon size={14} />
-                    <span>Проверить через ChatGPT</span>
-                  </button>
-                </div>
-              </section>
-            ) : (
-              <>
-                {results.length > 0 && (
-                  <>
-                {/* 1. ОРИГИНАЛ */}
-                <section className="vs-section" aria-labelledby="vs-sec-originals">
-                  <div className="vs-section-head">
-                    <div>
-                      <span className="vs-section-eyebrow">01 · Оригинал</span>
-                      <h2 id="vs-sec-originals" className="vs-section-title">
-                        Оригинал
-                        <span className="vs-count-pill">{sections.originals.length}</span>
-                      </h2>
-                      <p className="vs-section-desc">
-                        Подтверждённый бренд, коллекция и официальная модель из каталога производителя.
-                      </p>
+              </header>
+
+              <div className="vs-studio-card">
+                <PhotoCropStage
+                  photos={photos}
+                  photoUrls={photoUrls}
+                  activePhoto={activePhoto}
+                  primaryPhotoId={primaryPhoto?.id ?? null}
+                  onAddPhotos={addPhotos}
+                  onPasteFromClipboard={() => void handlePasteFromClipboard()}
+                  onSelectActivePhoto={setActivePhotoId}
+                  onSetPrimaryPhoto={handleSetPrimaryPhoto}
+                  onRemovePhoto={handleRemovePhoto}
+                  onCropChange={handleCropChange}
+                  onToggleCrop={handleToggleCrop}
+                  onRotatePhoto={handleRotatePhoto}
+                  onResetTransform={handleResetTransform}
+                  onZoomChange={handleZoomChange}
+                  onDownloadLensCopy={id => void handleDownloadLensCopy(id)}
+                  onDownloadOriginal={handleDownloadOriginal}
+                />
+
+                <form className="vs-search-bar" onSubmit={handleSearchSubmit}>
+                  {/* Explicit link between selected primary photo and search query */}
+                  {primaryPhoto && (
+                    <div className="vs-primary-link-bar" data-testid="vs-primary-search-context">
+                      <div className="vs-primary-link-left">
+                        {primaryPhotoUrl && (
+                          <img
+                            src={primaryPhotoUrl}
+                            alt=""
+                            aria-hidden="true"
+                            className="vs-primary-mini-thumb"
+                            style={
+                              primaryPhoto.rotation !== 0
+                                ? { transform: `rotate(${primaryPhoto.rotation}deg)` }
+                                : undefined
+                            }
+                          />
+                        )}
+                        <div className="vs-primary-link-text">
+                          <span className="vs-primary-link-label">
+                            <StarIcon size={11} filled />
+                            <span>Основное фото для поиска:</span>
+                            <strong>{primaryPhoto.file.name}</strong>
+                          </span>
+                          <span className="vs-primary-link-meta">
+                            {!isTransformDefault(primaryPhoto.crop, primaryPhoto.rotation)
+                              ? `Рабочая копия (${formatTransformSummary(primaryPhoto.crop, primaryPhoto.rotation)}) · оригинал сохранён`
+                              : 'Оригинал без изменений'}
+                            {photos.length > 1 ? ` · всего фото: ${photos.length}` : ''}
+                          </span>
+                        </div>
+                      </div>
+                      <span
+                        className={`lf-badge ${
+                          localCapabilities?.available
+                            ? 'lf-badge--documentation'
+                            : 'lf-badge--unknown'
+                        }`}
+                      >
+                        {localCapabilities?.available
+                          ? `Локальный индекс: ${localCapabilities.referenceCount}`
+                          : 'Без локального индекса'}
+                      </span>
                     </div>
+                  )}
+
+                  <div className="vs-search-input-wrap">
+                    <span className="vs-search-input-icon" aria-hidden="true">
+                      <SearchIcon size={16} />
+                    </span>
+                    <input
+                      id="vs-query-input"
+                      type="text"
+                      className="vs-search-input"
+                      aria-label="Название, артикул или видимые признаки светильника"
+                      placeholder="Название, артикул или описание (например, Emmemobili MYLINE, ICBA02 или латунные кольца)"
+                      value={query}
+                      maxLength={240}
+                      onChange={event => setQuery(event.target.value)}
+                    />
                   </div>
 
-                  {sections.originals.length > 0 ? (
+                  <div className="vs-search-controls-row">
                     <div
-                      className={`vs-cards-grid ${sections.originals.length === 1 ? 'vs-cards-grid--single' : ''}`}
+                      className="lf-segment vs-mode-switch"
+                      role="group"
+                      aria-label="Режим поиска"
                     >
-                      {sections.originals.map(item => (
-                        <ResultCard
-                          key={item.id}
-                          result={item}
-                          selectedSku={selectedVariants[item.id] ?? ''}
-                          isCompared={compareIds.includes(item.id)}
-                          isSaved={isResultSaved(item)}
-                          creatingRfq={creatingRfqId === item.id}
-                          featured={sections.originals.length === 1}
-                          onSelectSku={sku =>
-                            setSelectedVariants(prev => ({ ...prev, [item.id]: sku }))
-                          }
-                          onToggleCompare={handleToggleCompare}
-                          onFindSimilar={handleFindSimilar}
-                          onToggleSave={handleToggleSave}
-                          onReviewChatGpt={target => {
-                            setChatGptFocused(target);
-                            setChatGptOpen(true);
-                          }}
-                          onCreateRfq={target => void handleCreateRfq(target)}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="vs-section-quiet">
-                      <span>
-                        Подтверждённая запись оригинала не найдена. Если вы нашли официальную карточку через Google Lens или ChatGPT — вставьте ссылку для проверки.
-                      </span>
                       <button
+                        id="vs-mode-standard"
                         type="button"
-                        className="lf-btn lf-btn--sm"
-                        onClick={() => setLensOpen(true)}
+                        className={`lf-segment-btn ${mode === 'standard' ? 'lf-segment-btn--active' : ''}`}
+                        aria-pressed={mode === 'standard'}
+                        onClick={() => setMode('standard')}
                       >
-                        Добавить ссылку
+                        Быстрый поиск
+                      </button>
+                      <button
+                        id="vs-mode-deep"
+                        type="button"
+                        className={`lf-segment-btn ${mode === 'deep' ? 'lf-segment-btn--active' : ''}`}
+                        aria-pressed={mode === 'deep'}
+                        onClick={() => setMode('deep')}
+                      >
+                        <SparkIcon size={13} />
+                        <span>Глубокий поиск</span>
                       </button>
                     </div>
+
+                    <button
+                      id="vs-search-submit"
+                      type="submit"
+                      className="lf-btn lf-btn--primary vs-search-submit"
+                      disabled={loading || (!query.trim() && !primaryPhoto)}
+                    >
+                      <SearchIcon size={15} />
+                      <span>{loading ? 'Ищем светильник…' : 'Найти оригинал и аналоги'}</span>
+                    </button>
+                  </div>
+
+                  {/* Explicit user consent shown ONLY when server Gemini Free Tier is enabled */}
+                  {gemini?.enabled && primaryPhoto && (
+                    <label className="vs-consent-inline">
+                      <input
+                        id="vs-gemini-consent"
+                        type="checkbox"
+                        checked={allowGemini}
+                        onChange={event => setAllowGemini(event.target.checked)}
+                      />
+                      <span>
+                        Отправить рабочую копию основного фото ({primaryPhoto.file.name}) в Gemini для этого поиска (оригинал остаётся на вашем устройстве)
+                      </span>
+                    </label>
                   )}
-                </section>
 
-                {/* 2. ТОЧНЫЕ СОВПАДЕНИЯ */}
-                {[
-                  { id: 'exact', title: 'Точные совпадения', description: 'Та же модель на разных сайтах.', items: sections.exactMatches },
-                  { id: 'unverified', title: 'Ссылки на проверку', description: 'Источники из Google Lens и ChatGPT требуют сверки.', items: sections.unverified },
-                ].filter(group => group.id === 'exact' || group.items.length > 0).map(group => (
-                  <section key={group.id} className="vs-section" aria-labelledby={`vs-sec-${group.id}`}>
-                    <div className="vs-section-head">
-                      <div>
-                        <h2 id={`vs-sec-${group.id}`} className="vs-section-title">
-                          {group.title}
-                          <span className="vs-count-pill">{group.items.length}</span>
-                        </h2>
-                        <p className="vs-section-desc">
-                          {group.description}
-                        </p>
-                      </div>
+                  <div className="vs-hero-footer">
+                    <div className="vs-quick-tools">
                       <button
+                        id="vs-open-lens-btn"
                         type="button"
-                        className="lf-btn lf-btn--sm"
+                        className="lf-btn lf-btn--sm lf-btn--subtle"
                         onClick={() => setLensOpen(true)}
                       >
-                        <LensIcon size={13} />
-                        <span>Добавить ссылки из Lens</span>
+                        <LensIcon size={14} />
+                        <span>Google Lens</span>
                       </button>
-                    </div>
-
-                    {group.items.length > 0 ? (
-                      <div className="vs-cards-grid">
-                        {group.items.map(item => (
-                          <ResultCard
-                            key={item.id}
-                            result={item}
-                            selectedSku={selectedVariants[item.id] ?? ''}
-                            isCompared={compareIds.includes(item.id)}
-                            isSaved={isResultSaved(item)}
-                            creatingRfq={creatingRfqId === item.id}
-                            onSelectSku={sku =>
-                              setSelectedVariants(prev => ({ ...prev, [item.id]: sku }))
-                            }
-                            onToggleCompare={handleToggleCompare}
-                            onFindSimilar={handleFindSimilar}
-                            onToggleSave={handleToggleSave}
-                            onReviewChatGpt={target => {
-                              setChatGptFocused(target);
-                              setChatGptOpen(true);
-                            }}
-                            onCreateRfq={target => void handleCreateRfq(target)}
-                          />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="vs-section-quiet">
-                      <span>
-                        Точных совпадений пока нет. Найдите страницу модели через Google Lens или ChatGPT и добавьте ссылку на проверку.
-                      </span>
                       <button
+                        id="vs-open-chatgpt-btn"
                         type="button"
                         className="lf-btn lf-btn--sm lf-btn--subtle"
                         onClick={() => {
-                          setChatGptFocused(sections.originals[0]);
+                          setChatGptFocused(undefined);
                           setChatGptOpen(true);
                         }}
                       >
-                        Импорт из ChatGPT
+                        <ChatIcon size={14} />
+                        <span>Проверить через ChatGPT</span>
                       </button>
-                    </div>
-                  )}
-                </section>
-                ))}
-
-                {/* 3. ПОХОЖИЕ МОДЕЛИ */}
-                <section className="vs-section" aria-labelledby="vs-sec-similar">
-                  <div className="vs-section-head">
-                    <div>
-                      <span className="vs-section-eyebrow">03 · Похожие модели</span>
-                      <h2 id="vs-sec-similar" className="vs-section-title">
-                        Похожие модели
-                        <span className="vs-count-pill">{sections.similarModels.length}</span>
-                      </h2>
-                      <p className="vs-section-desc">
-                        Визуальные и конструктивные аналоги других серий и производителей.
-                      </p>
-                    </div>
-                    {sections.similarModels.length === 0 && sections.originals[0] && (
-                      <button
-                        type="button"
-                        className="lf-btn lf-btn--sm"
-                        onClick={() => handleFindSimilar(sections.originals[0])}
-                      >
-                        <SparkIcon size={13} />
-                        <span>Искать аналоги в глубоком поиске</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {sections.similarModels.length > 0 ? (
-                    <div className="vs-cards-grid">
-                      {sections.similarModels.map(item => (
-                        <ResultCard
-                          key={item.id}
-                          result={item}
-                          selectedSku={selectedVariants[item.id] ?? ''}
-                          isCompared={compareIds.includes(item.id)}
-                          isSaved={isResultSaved(item)}
-                          creatingRfq={creatingRfqId === item.id}
-                          onSelectSku={sku =>
-                            setSelectedVariants(prev => ({ ...prev, [item.id]: sku }))
-                          }
-                          onToggleCompare={handleToggleCompare}
-                          onFindSimilar={handleFindSimilar}
-                          onToggleSave={handleToggleSave}
-                          onReviewChatGpt={target => {
-                            setChatGptFocused(target);
-                            setChatGptOpen(true);
-                          }}
-                          onCreateRfq={target => void handleCreateRfq(target)}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="vs-section-quiet">
-                      <span>
-                        В быстром поиске показан только прямой результат. Включите глубокий поиск или нажмите «Найти похожие» на карточке.
-                      </span>
-                      {sections.originals[0] && (
+                      {saved.length > 0 && (
                         <button
                           type="button"
-                          className="lf-btn lf-btn--sm"
-                          onClick={() => handleFindSimilar(sections.originals[0])}
+                          className="lf-btn lf-btn--sm lf-btn--subtle"
+                          onClick={() => handleAddLinks(saved)}
                         >
-                          Найти похожие
+                          <BookmarkIcon size={13} filled />
+                          <span>Сохранённые ({saved.length})</span>
                         </button>
                       )}
                     </div>
-                  )}
-                </section>
-                  </>
-                )}
 
-                {/* 4. ТЕХНИЧЕСКАЯ ДОКУМЕНТАЦИЯ */}
-                {(results.length > 0 || documentationItems.length > 0) && (
-                <section className="vs-section" aria-labelledby="vs-sec-docs">
-                  <div className="vs-section-head">
+                    {history.length > 0 && (
+                      <div className="vs-recent-strip" aria-label="Недавние запросы">
+                        <span className="vs-recent-label">Недавние:</span>
+                        {history.slice(0, 4).map(term => (
+                          <button
+                            key={term}
+                            type="button"
+                            className="vs-recent-chip"
+                            onClick={() => {
+                              setQuery(term);
+                              void runSearch(term, mode, false, false);
+                            }}
+                          >
+                            {term}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </form>
+              </div>
+            </section>
+
+            {/* Results Workspace */}
+            {hasResultsArea && (
+              <div className="vs-results-flow">
+                {/* Honest provenance, active photo link & verification banner */}
+                <div className="vs-status-strip">
+                  <div className="vs-status-main">
+                    <ShieldIcon size={16} className="vs-status-icon" />
                     <div>
-                      <span className="vs-section-eyebrow">04 · Техническая документация</span>
-                      <h2 id="vs-sec-docs" className="vs-section-title">
-                        Техническая документация
-                        <span className="vs-count-pill">{documentationItems.length}</span>
-                      </h2>
-                      <p className="vs-section-desc">
-                        Официальные PDF-листы, подтверждённые габариты в миллиметрах, материалы и светотехнические параметры.
-                      </p>
+                      <strong>Original not verified</strong>
+                      <span>
+                        {' '}
+                        — запись каталога подтверждает изделие производителя, но совпадение с вашей фотографией требует визуальной проверки по официальной карточке и техпаспорту.
+                      </span>
+                      {lastSearchContext?.photoName && (
+                        <div className="vs-result-photo-link" data-testid="vs-result-photo-link">
+                          <span>
+                            Связанное фото: <strong>{lastSearchContext.photoName}</strong>
+                            {lastSearchContext.photoTransform
+                              ? ` · ${lastSearchContext.photoTransform}`
+                              : ''}
+                          </span>
+                          {isPhotoContextStale && (
+                            <button
+                              type="button"
+                              className="lf-btn lf-btn--sm lf-btn--brass"
+                              onClick={() => void runSearch(query, mode, allowGemini, true)}
+                            >
+                              <RefreshIcon size={12} />
+                              <span>Обновить по текущему фото</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {documentationItems.length > 0 ? (
-                    <div className="vs-docs-list">
-                      {documentationItems.map(item => {
-                        const chosenSku = selectedVariants[item.id] ?? '';
-                        const chosenVariant = item.variants?.find(v => v.sku === chosenSku);
-                        const specs = readResultSpecifications(item);
-                        const lightConfigs = filterLightingConfigurations(
-                          specs,
-                          chosenVariant?.widthMm,
-                        );
-                        return (
-                          <article key={item.id} className="vs-doc-card">
-                            <div className="vs-doc-head">
-                              <div>
-                                <span className="vs-card-eyebrow">
-                                  {item.brand ?? extractDisplayHost(item.source)}
-                                </span>
-                                <h3 className="vs-doc-title">{item.name}</h3>
-                                {item.details && <p className="vs-doc-details">{item.details}</p>}
-                              </div>
+                  {lastResponse && lastResponse.links.length > 0 && (
+                    <div className="vs-ext-links" aria-label="Поиск по каталогам в Google">
+                      <span className="vs-ext-label">Поиск в вебе:</span>
+                      {lastResponse.links.map(link => (
+                        <a
+                          key={link.language}
+                          href={link.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="vs-ext-pill"
+                        >
+                          <span>{formatLanguageLabel(link.language)}</span>
+                          <ExternalLinkIcon size={11} />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-                              <div className="vs-doc-head-actions">
-                                {item.documentUrl && (
-                                  <a
-                                    href={item.documentUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="lf-btn lf-btn--sm lf-btn--primary"
-                                  >
-                                    <FilePdfIcon size={14} />
-                                    <span>Открыть PDF техпаспорт</span>
-                                  </a>
-                                )}
-                                <a
-                                  href={item.source}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="lf-btn lf-btn--sm"
-                                >
-                                  <ExternalLinkIcon size={13} />
-                                  <span>Карточка производителя</span>
-                                </a>
-                              </div>
+                {lastResponse && lastResponse.traits.length > 0 && (
+                  <div className="vs-traits-bar">
+                    <span className="vs-traits-label">Видимые признаки по фото:</span>
+                    <div className="vs-traits-list">
+                      {lastResponse.traits.map(trait => (
+                        <span key={trait} className="lf-badge lf-badge--accent">
+                          {trait}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {geminiWarningText && (
+                  <div className="vs-warning-banner" role="status">
+                    <AlertIcon size={16} />
+                    <span>{geminiWarningText}</span>
+                  </div>
+                )}
+
+                {localResponse && (
+                  <LocalMatchesSection
+                    matches={localResponse.matches}
+                    usedCrop={localUsedCrop}
+                    selectedVariants={selectedVariants}
+                    compareIds={compareIds}
+                    creatingRfqId={creatingRfqId}
+                    isResultSaved={isResultSaved}
+                    onSelectSku={(resultId, sku) =>
+                      setSelectedVariants(prev => ({ ...prev, [resultId]: sku }))
+                    }
+                    onOpenDetail={openDetailView}
+                    onToggleCompare={handleToggleCompare}
+                    onFindSimilar={handleFindSimilar}
+                    onSearchByTitle={handleSearchByTitle}
+                    onToggleSave={handleToggleSave}
+                    onReviewChatGpt={target => {
+                      setChatGptFocused(target);
+                      setChatGptOpen(true);
+                    }}
+                    onCreateRfq={target => void handleCreateRfq(target)}
+                    onOpenLens={() => setLensOpen(true)}
+                  />
+                )}
+
+                {/* Empty / No results state */}
+                {!hasAnyMatches ? (
+                  <section className="vs-empty-results" aria-live="polite">
+                    <h2>
+                      {!localCapabilities?.available &&
+                      lastSearchContext?.photoName &&
+                      !lastSearchContext.query
+                        ? 'Локальный фотоиндекс не подключён'
+                        : 'Совпадений в каталоге пока не найдено'}
+                    </h2>
+                    <p>
+                      {!localCapabilities?.available &&
+                      lastSearchContext?.photoName &&
+                      !lastSearchContext.query
+                        ? 'Для поиска только по изображению без локального индекса откройте ручной Google Lens (можно скачать готовую рабочую копию фото), введите название/артикул светильника или проверьте через ChatGPT.'
+                        : 'Уточните название, артикул или материалы светильника, переключитесь на глубокий поиск или найдите страницу товара через Google Lens и добавьте ссылку сюда.'}
+                    </p>
+                    <div className="vs-empty-actions">
+                      {mode === 'standard' && (
+                        <button
+                          type="button"
+                          className="lf-btn lf-btn--primary"
+                          onClick={() => {
+                            setMode('deep');
+                            void runSearch(query, 'deep', false, false);
+                          }}
+                        >
+                          <SparkIcon size={14} />
+                          <span>Попробовать глубокий поиск</span>
+                        </button>
+                      )}
+                      <button type="button" className="lf-btn" onClick={() => setLensOpen(true)}>
+                        <LensIcon size={14} />
+                        <span>Открыть Google Lens</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="lf-btn"
+                        onClick={() => {
+                          setChatGptFocused(undefined);
+                          setChatGptOpen(true);
+                        }}
+                      >
+                        <ChatIcon size={14} />
+                        <span>Проверить через ChatGPT</span>
+                      </button>
+                    </div>
+                  </section>
+                ) : (
+                  <>
+                    {results.length > 0 && (
+                      <>
+                        {/* Filters, Sort & Grid/Table View Switcher */}
+                        <ResultsToolbar
+                          totalCount={results.length}
+                          filteredCount={filteredResults.length}
+                          filters={filters}
+                          viewMode={viewMode}
+                          availableKinds={filterOptions.kinds}
+                          availableBrands={filterOptions.brands}
+                          hasUnbranded={filterOptions.hasUnbranded}
+                          savedCount={saved.length}
+                          onFiltersChange={setFilters}
+                          onResetFilters={() => setFilters(DEFAULT_RESULT_FILTERS)}
+                          onViewModeChange={setViewMode}
+                        />
+
+                        {filteredResults.length === 0 ? (
+                          <section className="vs-empty-results" aria-live="polite">
+                            <h2>По выбранным фильтрам модели не найдены</h2>
+                            <p>
+                              Найдено записей: {results.length}, но текущие фильтры скрыли все результаты.
+                            </p>
+                            <div className="vs-empty-actions">
+                              <button
+                                type="button"
+                                className="lf-btn lf-btn--primary"
+                                onClick={() => setFilters(DEFAULT_RESULT_FILTERS)}
+                              >
+                                <RefreshIcon size={14} />
+                                <span>Сбросить фильтры</span>
+                              </button>
                             </div>
+                          </section>
+                        ) : viewMode === 'table' ? (
+                          <ResultsTableView
+                            results={filteredResults}
+                            selectedVariants={selectedVariants}
+                            compareIds={compareIds}
+                            creatingRfqId={creatingRfqId}
+                            isResultSaved={isResultSaved}
+                            onSelectSku={(resultId, sku) =>
+                              setSelectedVariants(prev => ({ ...prev, [resultId]: sku }))
+                            }
+                            onOpenDetail={openDetailView}
+                            onToggleCompare={handleToggleCompare}
+                            onToggleSave={handleToggleSave}
+                            onCreateRfq={target => void handleCreateRfq(target)}
+                          />
+                        ) : (
+                          <>
+                            {/* 1. ОРИГИНАЛ */}
+                            {(isDefaultResultFilters(filters) || sections.originals.length > 0) && (
+                              <section className="vs-section" aria-labelledby="vs-sec-originals">
+                                <div className="vs-section-head">
+                                  <div>
+                                    <span className="vs-section-eyebrow">01 · Оригинал</span>
+                                    <h2 id="vs-sec-originals" className="vs-section-title">
+                                      Оригинал
+                                      <span className="vs-count-pill">
+                                        {sections.originals.length}
+                                      </span>
+                                    </h2>
+                                    <p className="vs-section-desc">
+                                      Подтверждённый бренд, коллекция и официальная модель из каталога производителя.
+                                    </p>
+                                  </div>
+                                </div>
 
-                            {item.variants && item.variants.length > 0 && (
-                              <div className="vs-doc-table-wrap">
-                                <table className="vs-doc-table">
-                                  <thead>
-                                    <tr>
-                                      <th>Артикул</th>
-                                      <th>Ширина</th>
-                                      <th>Глубина</th>
-                                      <th>Высота</th>
-                                      <th>Диммирование</th>
-                                      <th>Статус</th>
-                                      <th aria-label="Выбор для RFQ" />
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {item.variants.map(variant => {
-                                      const active = chosenSku === variant.sku;
-                                      return (
-                                        <tr
-                                          key={variant.sku}
-                                          className={active ? 'vs-doc-row--active' : ''}
-                                        >
-                                          <td className="mono">
-                                            <strong>{variant.sku}</strong>
-                                          </td>
-                                          <td className="mono">{variant.widthMm} мм</td>
-                                          <td className="mono">{variant.depthMm} мм</td>
-                                          <td className="mono">{variant.heightMm} мм</td>
-                                          <td>{item.confirmedDimming ?? 'На подтверждение'}</td>
-                                          <td>
-                                            <span className="lf-badge lf-badge--documentation">
-                                              По техпаспорту
-                                            </span>
-                                          </td>
-                                          <td className="vs-doc-cell-action">
-                                            <button
-                                              type="button"
-                                              className={`lf-btn lf-btn--sm ${active ? 'lf-btn--primary' : ''}`}
-                                              onClick={() =>
-                                                setSelectedVariants(prev => ({
-                                                  ...prev,
-                                                  [item.id]: variant.sku,
-                                                }))
-                                              }
-                                            >
-                                              {active ? 'Выбран для RFQ' : 'Выбрать'}
-                                            </button>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
+                                {sections.originals.length > 0 ? (
+                                  <div
+                                    className={`vs-cards-grid ${sections.originals.length === 1 ? 'vs-cards-grid--single' : ''}`}
+                                  >
+                                    {sections.originals.map(item => (
+                                      <ResultCard
+                                        key={item.id}
+                                        result={item}
+                                        selectedSku={selectedVariants[item.id] ?? ''}
+                                        isCompared={compareIds.includes(item.id)}
+                                        isSaved={isResultSaved(item)}
+                                        creatingRfq={creatingRfqId === item.id}
+                                        featured={sections.originals.length === 1}
+                                        onSelectSku={sku =>
+                                          setSelectedVariants(prev => ({ ...prev, [item.id]: sku }))
+                                        }
+                                        onOpenDetail={openDetailView}
+                                        onToggleCompare={handleToggleCompare}
+                                        onFindSimilar={handleFindSimilar}
+                                        onToggleSave={handleToggleSave}
+                                        onReviewChatGpt={target => {
+                                          setChatGptFocused(target);
+                                          setChatGptOpen(true);
+                                        }}
+                                        onCreateRfq={target => void handleCreateRfq(target)}
+                                      />
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="vs-section-quiet">
+                                    <span>
+                                      Подтверждённая запись оригинала не найдена. Если вы нашли официальную карточку через Google Lens или ChatGPT — вставьте ссылку для проверки.
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="lf-btn lf-btn--sm"
+                                      onClick={() => setLensOpen(true)}
+                                    >
+                                      Добавить ссылку
+                                    </button>
+                                  </div>
+                                )}
+                              </section>
                             )}
 
-                            {specs && (
-                              <div className="vs-doc-specs">
-                                <div className="vs-doc-specs-grid">
-                                  {specs.materials && specs.materials.length > 0 && (
-                                    <div className="vs-doc-spec-block">
-                                      <strong>Материалы по деталям</strong>
+                            {/* 2. ТОЧНЫЕ СОВПАДЕНИЯ И ССЫЛКИ НА ПРОВЕРКУ */}
+                            {[
+                              {
+                                id: 'exact',
+                                title: 'Точные совпадения',
+                                description: 'Та же модель на разных сайтах.',
+                                items: sections.exactMatches,
+                              },
+                              {
+                                id: 'unverified',
+                                title: 'Ссылки на проверку',
+                                description: 'Источники из Google Lens и ChatGPT требуют сверки.',
+                                items: sections.unverified,
+                              },
+                            ]
+                              .filter(
+                                group =>
+                                  (group.id === 'exact' && isDefaultResultFilters(filters)) ||
+                                  group.items.length > 0,
+                              )
+                              .map(group => (
+                                <section
+                                  key={group.id}
+                                  className="vs-section"
+                                  aria-labelledby={`vs-sec-${group.id}`}
+                                >
+                                  <div className="vs-section-head">
+                                    <div>
+                                      <h2 id={`vs-sec-${group.id}`} className="vs-section-title">
+                                        {group.title}
+                                        <span className="vs-count-pill">{group.items.length}</span>
+                                      </h2>
+                                      <p className="vs-section-desc">{group.description}</p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="lf-btn lf-btn--sm"
+                                      onClick={() => setLensOpen(true)}
+                                    >
+                                      <LensIcon size={13} />
+                                      <span>Добавить ссылки из Lens</span>
+                                    </button>
+                                  </div>
+
+                                  {group.items.length > 0 ? (
+                                    <div className="vs-cards-grid">
+                                      {group.items.map(item => (
+                                        <ResultCard
+                                          key={item.id}
+                                          result={item}
+                                          selectedSku={selectedVariants[item.id] ?? ''}
+                                          isCompared={compareIds.includes(item.id)}
+                                          isSaved={isResultSaved(item)}
+                                          creatingRfq={creatingRfqId === item.id}
+                                          onSelectSku={sku =>
+                                            setSelectedVariants(prev => ({
+                                              ...prev,
+                                              [item.id]: sku,
+                                            }))
+                                          }
+                                          onOpenDetail={openDetailView}
+                                          onToggleCompare={handleToggleCompare}
+                                          onFindSimilar={handleFindSimilar}
+                                          onToggleSave={handleToggleSave}
+                                          onReviewChatGpt={target => {
+                                            setChatGptFocused(target);
+                                            setChatGptOpen(true);
+                                          }}
+                                          onCreateRfq={target => void handleCreateRfq(target)}
+                                        />
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="vs-section-quiet">
                                       <span>
-                                        {specs.materials.map(m => `${m.part}: ${m.material}`).join(' · ')}
+                                        Точных совпадений пока нет. Найдите страницу модели через Google Lens или ChatGPT и добавьте ссылку на проверку.
                                       </span>
+                                      <button
+                                        type="button"
+                                        className="lf-btn lf-btn--sm lf-btn--subtle"
+                                        onClick={() => {
+                                          setChatGptFocused(sections.originals[0]);
+                                          setChatGptOpen(true);
+                                        }}
+                                      >
+                                        Импорт из ChatGPT
+                                      </button>
                                     </div>
                                   )}
-                                  {specs.finishes && specs.finishes.length > 0 && (
-                                    <div className="vs-doc-spec-block">
-                                      <strong>Варианты отделок (техпаспорт)</strong>
-                                      <span>
-                                        {specs.finishes
-                                          .map(f => `${f.part} ${f.code} (${f.name})`)
-                                          .join(' · ')}
+                                </section>
+                              ))}
+
+                            {/* 3. ПОХОЖИЕ МОДЕЛИ */}
+                            {(isDefaultResultFilters(filters) ||
+                              sections.similarModels.length > 0) && (
+                              <section className="vs-section" aria-labelledby="vs-sec-similar">
+                                <div className="vs-section-head">
+                                  <div>
+                                    <span className="vs-section-eyebrow">03 · Похожие модели</span>
+                                    <h2 id="vs-sec-similar" className="vs-section-title">
+                                      Похожие модели
+                                      <span className="vs-count-pill">
+                                        {sections.similarModels.length}
                                       </span>
-                                    </div>
-                                  )}
-                                  {(specs.dimensionsReferTo || specs.standardMaxBandLengthMm) && (
-                                    <div className="vs-doc-spec-block">
-                                      <strong>Точка отсчёта и подвес</strong>
-                                      <span>
-                                        {[
-                                          specs.dimensionsReferTo
-                                            ? `Размеры: ${specs.dimensionsReferTo}`
-                                            : undefined,
-                                          specs.standardMaxBandLengthMm
-                                            ? `Макс. стандартная длина ремня: ${specs.standardMaxBandLengthMm} мм`
-                                            : undefined,
-                                        ]
-                                          .filter(Boolean)
-                                          .join(' · ')}
-                                      </span>
-                                    </div>
+                                    </h2>
+                                    <p className="vs-section-desc">
+                                      Визуальные и конструктивные аналоги других серий и производителей.
+                                    </p>
+                                  </div>
+                                  {sections.similarModels.length === 0 && sections.originals[0] && (
+                                    <button
+                                      type="button"
+                                      className="lf-btn lf-btn--sm"
+                                      onClick={() => handleFindSimilar(sections.originals[0])}
+                                    >
+                                      <SparkIcon size={13} />
+                                      <span>Искать аналоги в глубоком поиске</span>
+                                    </button>
                                   )}
                                 </div>
 
-                                {specs.lighting && lightConfigs.length > 0 && (
-                                  <>
-                                    <span className="vs-doc-subhead">
-                                      Световые конфигурации из техпаспорта ({specs.lighting.sourceType}{' '}
-                                      {specs.lighting.sourceVoltageV} В
-                                      {chosenVariant ? ` · фильтр по кольцу ${chosenVariant.widthMm} мм` : ''})
+                                {sections.similarModels.length > 0 ? (
+                                  <div className="vs-cards-grid">
+                                    {sections.similarModels.map(item => (
+                                      <ResultCard
+                                        key={item.id}
+                                        result={item}
+                                        selectedSku={selectedVariants[item.id] ?? ''}
+                                        isCompared={compareIds.includes(item.id)}
+                                        isSaved={isResultSaved(item)}
+                                        creatingRfq={creatingRfqId === item.id}
+                                        onSelectSku={sku =>
+                                          setSelectedVariants(prev => ({ ...prev, [item.id]: sku }))
+                                        }
+                                        onOpenDetail={openDetailView}
+                                        onToggleCompare={handleToggleCompare}
+                                        onFindSimilar={handleFindSimilar}
+                                        onToggleSave={handleToggleSave}
+                                        onReviewChatGpt={target => {
+                                          setChatGptFocused(target);
+                                          setChatGptOpen(true);
+                                        }}
+                                        onCreateRfq={target => void handleCreateRfq(target)}
+                                      />
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="vs-section-quiet">
+                                    <span>
+                                      В быстром поиске показан только прямой результат. Включите глубокий поиск или нажмите «Найти похожие» на карточке.
                                     </span>
+                                    {sections.originals[0] && (
+                                      <button
+                                        type="button"
+                                        className="lf-btn lf-btn--sm"
+                                        onClick={() => handleFindSimilar(sections.originals[0])}
+                                      >
+                                        Найти похожие
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </section>
+                            )}
+                          </>
+                        )}
+                      </>
+                    )}
+
+                    {/* 4. ТЕХНИЧЕСКАЯ ДОКУМЕНТАЦИЯ */}
+                    {(filteredResults.length > 0 || documentationItems.length > 0) && (
+                      <section className="vs-section" aria-labelledby="vs-sec-docs">
+                        <div className="vs-section-head">
+                          <div>
+                            <span className="vs-section-eyebrow">
+                              04 · Техническая документация
+                            </span>
+                            <h2 id="vs-sec-docs" className="vs-section-title">
+                              Техническая документация
+                              <span className="vs-count-pill">{documentationItems.length}</span>
+                            </h2>
+                            <p className="vs-section-desc">
+                              Официальные PDF-листы, подтверждённые габариты в миллиметрах, материалы и светотехнические параметры.
+                            </p>
+                          </div>
+                        </div>
+
+                        {documentationItems.length > 0 ? (
+                          <div className="vs-docs-list">
+                            {documentationItems.map(item => {
+                              const chosenSku = selectedVariants[item.id] ?? '';
+                              const chosenVariant = item.variants?.find(v => v.sku === chosenSku);
+                              const specs = readResultSpecifications(item);
+                              const lightConfigs = filterLightingConfigurations(
+                                specs,
+                                chosenVariant?.widthMm,
+                              );
+                              return (
+                                <article key={item.id} className="vs-doc-card">
+                                  <div className="vs-doc-head">
+                                    <div>
+                                      <span className="vs-card-eyebrow">
+                                        {item.brand ?? extractDisplayHost(item.source)}
+                                      </span>
+                                      <h3 className="vs-doc-title">{item.name}</h3>
+                                      {item.details && (
+                                        <p className="vs-doc-details">{item.details}</p>
+                                      )}
+                                    </div>
+
+                                    <div className="vs-doc-head-actions">
+                                      <button
+                                        type="button"
+                                        className="lf-btn lf-btn--sm"
+                                        onClick={() => openDetailView(item)}
+                                      >
+                                        <EyeIcon size={13} />
+                                        <span>Подробнее</span>
+                                      </button>
+                                      {item.documentUrl && (
+                                        <a
+                                          href={item.documentUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="lf-btn lf-btn--sm lf-btn--primary"
+                                        >
+                                          <FilePdfIcon size={14} />
+                                          <span>Открыть PDF техпаспорт</span>
+                                        </a>
+                                      )}
+                                      <a
+                                        href={item.source}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="lf-btn lf-btn--sm"
+                                      >
+                                        <ExternalLinkIcon size={13} />
+                                        <span>Карточка производителя</span>
+                                      </a>
+                                    </div>
+                                  </div>
+
+                                  {item.variants && item.variants.length > 0 && (
                                     <div className="vs-doc-table-wrap">
                                       <table className="vs-doc-table">
                                         <thead>
                                           <tr>
-                                            <th>Ширина кольца</th>
-                                            <th>Направление</th>
-                                            <th>Мощность</th>
-                                            <th>Световой поток (CCT)</th>
-                                            <th>Вес нетто</th>
+                                            <th>Артикул</th>
+                                            <th>Ширина</th>
+                                            <th>Глубина</th>
+                                            <th>Высота</th>
+                                            <th>Диммирование</th>
+                                            <th>Статус</th>
+                                            <th aria-label="Выбор для RFQ" />
                                           </tr>
                                         </thead>
                                         <tbody>
-                                          {lightConfigs.map(cfg => (
-                                            <tr key={`${cfg.ringWidthMm}-${cfg.direction}`}>
-                                              <td className="mono">{cfg.ringWidthMm} мм</td>
-                                              <td>{formatLightDirection(cfg.direction)}</td>
-                                              <td className="mono">{cfg.powerW} Вт</td>
-                                              <td className="mono">
-                                                {cfg.outputs
-                                                  .map(o => `${o.cctK}K: ${o.lumens} Лм`)
-                                                  .join(' · ')}
-                                              </td>
-                                              <td className="mono">{cfg.netWeightKg} кг</td>
-                                            </tr>
-                                          ))}
+                                          {item.variants.map(variant => {
+                                            const active = chosenSku === variant.sku;
+                                            return (
+                                              <tr
+                                                key={variant.sku}
+                                                className={active ? 'vs-doc-row--active' : ''}
+                                              >
+                                                <td className="mono">
+                                                  <strong>{variant.sku}</strong>
+                                                </td>
+                                                <td className="mono">{variant.widthMm} мм</td>
+                                                <td className="mono">{variant.depthMm} мм</td>
+                                                <td className="mono">{variant.heightMm} мм</td>
+                                                <td>
+                                                  {item.confirmedDimming ?? 'На подтверждение'}
+                                                </td>
+                                                <td>
+                                                  <span className="lf-badge lf-badge--documentation">
+                                                    По техпаспорту
+                                                  </span>
+                                                </td>
+                                                <td className="vs-doc-cell-action">
+                                                  <button
+                                                    type="button"
+                                                    className={`lf-btn lf-btn--sm ${active ? 'lf-btn--primary' : ''}`}
+                                                    onClick={() =>
+                                                      setSelectedVariants(prev => ({
+                                                        ...prev,
+                                                        [item.id]: variant.sku,
+                                                      }))
+                                                    }
+                                                  >
+                                                    {active ? 'Выбран для RFQ' : 'Выбрать'}
+                                                  </button>
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
                                         </tbody>
                                       </table>
                                     </div>
-                                  </>
-                                )}
-                              </div>
-                            )}
+                                  )}
 
-                            <div className="vs-doc-foot">
-                              <span className="vs-doc-foot-note">
-                                Привязка направления света и мощности к артикулу, а также цена и окончательная отделка подтверждаются фабрикой в RFQ.
-                              </span>
-                              <button
-                                type="button"
-                                className="lf-btn lf-btn--sm lf-btn--brass"
-                                disabled={creatingRfqId === item.id}
-                                onClick={() => void handleCreateRfq(item)}
-                              >
-                                <LayersIcon size={13} />
-                                <span>
-                                  {chosenSku
-                                    ? `Создать запрос фабрике (${chosenSku})`
-                                    : 'Создать запрос фабрике'}
-                                </span>
-                              </button>
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="vs-section-quiet">
-                      <span>
-                        Для текущих ссылок официальные PDF и размеры в каталоге не прикреплены. Проверьте первоисточник производителя или откройте запрос фабрике для уточнения чертежей.
-                      </span>
-                    </div>
-                  )}
-                </section>
+                                  {specs && (
+                                    <div className="vs-doc-specs">
+                                      <div className="vs-doc-specs-grid">
+                                        {specs.materials && specs.materials.length > 0 && (
+                                          <div className="vs-doc-spec-block">
+                                            <strong>Материалы по деталям</strong>
+                                            <span>
+                                              {specs.materials
+                                                .map(m => `${m.part}: ${m.material}`)
+                                                .join(' · ')}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {specs.finishes && specs.finishes.length > 0 && (
+                                          <div className="vs-doc-spec-block">
+                                            <strong>Варианты отделок (техпаспорт)</strong>
+                                            <span>
+                                              {specs.finishes
+                                                .map(f => `${f.part} ${f.code} (${f.name})`)
+                                                .join(' · ')}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {(specs.dimensionsReferTo ||
+                                          specs.standardMaxBandLengthMm) && (
+                                          <div className="vs-doc-spec-block">
+                                            <strong>Точка отсчёта и подвес</strong>
+                                            <span>
+                                              {[
+                                                specs.dimensionsReferTo
+                                                  ? `Размеры: ${specs.dimensionsReferTo}`
+                                                  : undefined,
+                                                specs.standardMaxBandLengthMm
+                                                  ? `Макс. стандартная длина ремня: ${specs.standardMaxBandLengthMm} мм`
+                                                  : undefined,
+                                              ]
+                                                .filter(Boolean)
+                                                .join(' · ')}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {specs.lighting && lightConfigs.length > 0 && (
+                                        <>
+                                          <span className="vs-doc-subhead">
+                                            Световые конфигурации из техпаспорта (
+                                            {specs.lighting.sourceType}{' '}
+                                            {specs.lighting.sourceVoltageV} В
+                                            {chosenVariant
+                                              ? ` · фильтр по кольцу ${chosenVariant.widthMm} мм`
+                                              : ''}
+                                            )
+                                          </span>
+                                          <div className="vs-doc-table-wrap">
+                                            <table className="vs-doc-table">
+                                              <thead>
+                                                <tr>
+                                                  <th>Ширина кольца</th>
+                                                  <th>Направление</th>
+                                                  <th>Мощность</th>
+                                                  <th>Световой поток (CCT)</th>
+                                                  <th>Вес нетто</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {lightConfigs.map(cfg => (
+                                                  <tr key={`${cfg.ringWidthMm}-${cfg.direction}`}>
+                                                    <td className="mono">{cfg.ringWidthMm} мм</td>
+                                                    <td>{formatLightDirection(cfg.direction)}</td>
+                                                    <td className="mono">{cfg.powerW} Вт</td>
+                                                    <td className="mono">
+                                                      {cfg.outputs
+                                                        .map(o => `${o.cctK}K: ${o.lumens} Лм`)
+                                                        .join(' · ')}
+                                                    </td>
+                                                    <td className="mono">{cfg.netWeightKg} кг</td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  <div className="vs-doc-foot">
+                                    <span className="vs-doc-foot-note">
+                                      Привязка направления света и мощности к артикулу, а также цена и окончательная отделка подтверждаются фабрикой в RFQ.
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="lf-btn lf-btn--sm lf-btn--brass"
+                                      disabled={creatingRfqId === item.id}
+                                      onClick={() => void handleCreateRfq(item)}
+                                    >
+                                      <LayersIcon size={13} />
+                                      <span>
+                                        {chosenSku
+                                          ? `Создать запрос фабрике (${chosenSku})`
+                                          : 'Создать запрос фабрике'}
+                                      </span>
+                                    </button>
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="vs-section-quiet">
+                            <span>
+                              Для текущих ссылок официальные PDF и размеры в каталоге не прикреплены. Проверьте первоисточник производителя или откройте запрос фабрике для уточнения чертежей.
+                            </span>
+                          </div>
+                        )}
+                      </section>
+                    )}
+                  </>
                 )}
-              </>
-            )}
 
-            {/* Comparison Studio */}
-            <ComparisonStudio
-              items={comparedItems}
-              allResults={allComparableResults}
-              selectedVariants={selectedVariants}
-              photo={photo}
-              photoUrl={photoUrl}
-              crop={crop}
-              activeTab={compareTab}
-              creatingRfqId={creatingRfqId}
-              onTabChange={setCompareTab}
-              onSelectSku={(resultId, sku) =>
-                setSelectedVariants(prev => ({ ...prev, [resultId]: sku }))
-              }
-              onToggleCompare={handleToggleCompare}
-              onClearCompare={() => setCompareIds([])}
-              onCreateRfq={target => void handleCreateRfq(target)}
-              onRequestUpload={() => {
-                document.getElementById('vs-photo-input')?.click();
-              }}
-            />
-          </div>
+                {/* Comparison Studio */}
+                <ComparisonStudio
+                  items={comparedItems}
+                  allResults={allComparableResults}
+                  selectedVariants={selectedVariants}
+                  photo={primaryPhoto?.file}
+                  photoUrl={primaryPhotoUrl}
+                  crop={primaryPhoto?.crop ?? FULL_CROP}
+                  rotation={primaryPhoto?.rotation ?? 0}
+                  activeTab={compareTab}
+                  creatingRfqId={creatingRfqId}
+                  onTabChange={setCompareTab}
+                  onSelectSku={(resultId, sku) =>
+                    setSelectedVariants(prev => ({ ...prev, [resultId]: sku }))
+                  }
+                  onToggleCompare={handleToggleCompare}
+                  onClearCompare={() => setCompareIds([])}
+                  onCreateRfq={target => void handleCreateRfq(target)}
+                  onRequestUpload={() => {
+                    document.getElementById('vs-photo-input')?.click();
+                  }}
+                />
+              </div>
+            )}
+          </>
         )}
       </main>
 
       {/* Sticky Comparison Dock when models are selected and studio is offscreen */}
-      {comparedItems.length > 0 && !compareInView && (
+      {comparedItems.length > 0 && !compareInView && !detailResult && (
         <div className="vs-compare-dock" role="region" aria-label="Панель сравнения">
           <div className="vs-compare-dock-inner">
             <div className="vs-compare-dock-info">
@@ -1445,10 +1972,16 @@ export function VisualSearch() {
 
       <LensDrawer
         open={lensOpen}
-        hasPhoto={Boolean(photo)}
+        hasPhoto={Boolean(primaryPhoto)}
+        primaryPhotoName={primaryPhoto?.file.name}
+        transformSummary={
+          primaryPhoto && !isTransformDefault(primaryPhoto.crop, primaryPhoto.rotation)
+            ? formatTransformSummary(primaryPhoto.crop, primaryPhoto.rotation)
+            : undefined
+        }
         onClose={() => setLensOpen(false)}
-        onDownloadLensCopy={() => void handleDownloadLensCopy()}
-        onDownloadOriginal={handleDownloadOriginal}
+        onDownloadLensCopy={() => void handleDownloadLensCopy(primaryPhoto?.id)}
+        onDownloadOriginal={() => handleDownloadOriginal(primaryPhoto?.id)}
         onAddLinks={handleAddLinks}
       />
 
@@ -1460,7 +1993,10 @@ export function VisualSearch() {
         onClose={() => setChatGptOpen(false)}
         onAddLinks={handleAddLinks}
         onExportPrompt={text => {
-          triggerDownload(new Blob([text], { type: 'text/plain;charset=utf-8' }), 'light-forge-review.txt');
+          triggerDownload(
+            new Blob([text], { type: 'text/plain;charset=utf-8' }),
+            'light-forge-review.txt',
+          );
           showNotice('Задание для проверки сохранено в light-forge-review.txt.');
         }}
       />

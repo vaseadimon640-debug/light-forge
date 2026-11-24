@@ -1,8 +1,19 @@
 import type { z } from 'zod';
-import { productTypes, type ProductType } from '../../domain/project.ts';
+import {
+  imageTypes,
+  maxPhotoBytes,
+  maxPhotos,
+  maxTotalPhotoBytes,
+  photoSchema,
+  productTypes,
+  projectSchema,
+  type ProductType,
+} from '../../domain/project.ts';
+import type { ProjectSnapshot } from '../../storage/projects.ts';
 import {
   canonicalSource,
   importReviewLinks,
+  projectFromSearch,
   reviewSchema,
   sourceUrlSchema,
   type ReviewLink,
@@ -21,8 +32,22 @@ export type CropRect = {
   height: number;
 };
 
+export type RotationDeg = 0 | 90 | 180 | 270;
+
+export type SearchPhotoItem = {
+  id: string;
+  file: File;
+  crop: CropRect;
+  rotation: RotationDeg;
+  zoom: number;
+  cropActive: boolean;
+};
+
 export const FULL_CROP: CropRect = { x: 0, y: 0, width: 100, height: 100 };
 export const MIN_CROP_SIZE = 10;
+export const MIN_ZOOM = 1;
+export const MAX_ZOOM = 3;
+export const ZOOM_STEP = 0.25;
 
 export function clampCrop(input: CropRect): CropRect {
   const safeNum = (value: number, fallback: number) => (Number.isFinite(value) ? value : fallback);
@@ -605,11 +630,313 @@ export function localMatchMeta(match: LocalSearchMatch['match']): LocalMatchMeta
   };
 }
 
+export function rotateDegrees(current: RotationDeg, delta: 90 | -90): RotationDeg {
+  return ((((current + delta) % 360) + 360) % 360) as RotationDeg;
+}
+
+export function rotateCropRect(crop: CropRect, delta: 90 | -90): CropRect {
+  if (isFullCrop(crop)) return FULL_CROP;
+  if (delta === 90) {
+    return clampCrop({
+      x: 100 - (crop.y + crop.height),
+      y: crop.x,
+      width: crop.height,
+      height: crop.width,
+    });
+  }
+  return clampCrop({
+    x: crop.y,
+    y: 100 - (crop.x + crop.width),
+    width: crop.height,
+    height: crop.width,
+  });
+}
+
+export function clampZoom(value: number): number {
+  if (!Number.isFinite(value)) return MIN_ZOOM;
+  const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
+  return Math.round(clamped * 100) / 100;
+}
+
+export function isTransformDefault(crop: CropRect, rotation: RotationDeg): boolean {
+  return isFullCrop(crop) && rotation === 0;
+}
+
+export function formatTransformSummary(crop: CropRect, rotation: RotationDeg): string {
+  const parts: string[] = [];
+  if (!isFullCrop(crop)) parts.push(formatCropSummary(crop));
+  if (rotation !== 0) parts.push(`Поворот ${rotation}°`);
+  return parts.length > 0 ? parts.join(' · ') : 'Всё фото (100%)';
+}
+
 export function shouldUseOriginalForLocalSearch(
   file: Pick<File, 'size'>,
   crop: CropRect,
+  rotation: RotationDeg = 0,
 ): boolean {
-  return isFullCrop(crop) && file.size > 0 && file.size <= maxLocalPhotoBytes;
+  return isFullCrop(crop) && rotation === 0 && file.size > 0 && file.size <= maxLocalPhotoBytes;
+}
+
+function extensionForMime(type: string): string {
+  if (type === 'image/png') return 'png';
+  if (type === 'image/webp') return 'webp';
+  return 'jpg';
+}
+
+export function normalizeClipboardFile(file: File, index: number): File {
+  const rawName = file.name?.trim() ?? '';
+  const isGeneric = !rawName || /^(image|blob)(\.[a-z0-9]+)?$/i.test(rawName);
+  if (!isGeneric) return file;
+  const ext = extensionForMime(file.type);
+  return new File([file], `clipboard-photo-${index}.${ext}`, {
+    type: file.type || 'image/png',
+    lastModified: file.lastModified || Date.now(),
+  });
+}
+
+export function validateIncomingPhotos(
+  existingFiles: Pick<File, 'size'>[],
+  incomingFiles: File[],
+  source: 'upload' | 'clipboard' = 'upload',
+): { accepted: File[]; errors: string[] } {
+  const accepted: File[] = [];
+  const errors: string[] = [];
+  let totalCount = existingFiles.length;
+  let totalBytes = existingFiles.reduce((sum, file) => sum + file.size, 0);
+
+  for (const rawFile of incomingFiles) {
+    const file =
+      source === 'clipboard'
+        ? normalizeClipboardFile(rawFile, totalCount + accepted.length + 1)
+        : rawFile;
+
+    if (!imageTypes.some(type => type === file.type)) {
+      errors.push(`«${file.name || 'файл'}»: поддерживаются только JPEG, PNG или WebP.`);
+      continue;
+    }
+    if (!file.size || file.size > maxPhotoBytes) {
+      errors.push(`«${file.name}»: размер фото должен быть от 1 Б до 12 МБ.`);
+      continue;
+    }
+    if (totalCount >= maxPhotos) {
+      errors.push(`Достигнут лимит ${maxPhotos} фотографий — часть файлов не добавлена.`);
+      break;
+    }
+    if (totalBytes + file.size > maxTotalPhotoBytes) {
+      errors.push(`«${file.name}»: превышен суммарный лимит фотографий 32 МБ.`);
+      continue;
+    }
+    accepted.push(file);
+    totalCount += 1;
+    totalBytes += file.size;
+  }
+
+  return { accepted, errors };
+}
+
+export function buildRfqSnapshotFromSearch(
+  result: SearchResult,
+  variant: NonNullable<SearchResult['variants']>[number] | undefined,
+  photos: Pick<SearchPhotoItem, 'id' | 'file'>[],
+  primaryPhotoId?: string | null,
+): ProjectSnapshot {
+  const primary = photos.find(item => item.id === primaryPhotoId) ?? photos[0];
+  const base = projectFromSearch(result, variant, primary?.file);
+  if (!primary || photos.length <= 1) {
+    return base;
+  }
+
+  const nextPhotos = [...base.project.photos];
+  const nextOriginals: Record<string, Blob> = { ...base.originals };
+  let totalBytes = nextPhotos.reduce((sum, photo) => sum + photo.size, 0);
+
+  for (const item of photos) {
+    if (item.id === primary.id) continue;
+    if (nextPhotos.length >= maxPhotos) break;
+    if (totalBytes + item.file.size > maxTotalPhotoBytes) continue;
+    const parsed = photoSchema.safeParse({
+      id: crypto.randomUUID(),
+      name: item.file.name,
+      type: item.file.type,
+      size: item.file.size,
+    });
+    if (!parsed.success) continue;
+    nextPhotos.push(parsed.data);
+    nextOriginals[parsed.data.id] = item.file;
+    totalBytes += parsed.data.size;
+  }
+
+  const project = projectSchema.parse({
+    ...base.project,
+    photos: nextPhotos,
+    primaryPhotoId: base.project.primaryPhotoId,
+  });
+
+  return { project, originals: nextOriginals };
+}
+
+export type ResultCategoryFilter =
+  | 'all'
+  | 'verified_original'
+  | 'exact_match'
+  | 'similar'
+  | 'unverified';
+
+export type ResultSortKey = 'relevance' | 'name' | 'docs_first' | 'width_asc' | 'width_desc';
+export type ResultViewMode = 'grid' | 'table';
+
+export type ResultFilterState = {
+  category: ResultCategoryFilter;
+  kind: string;
+  brand: string;
+  onlyWithPdf: boolean;
+  onlySaved: boolean;
+  sort: ResultSortKey;
+};
+
+export const UNBRANDED_FILTER_VALUE = '__unbranded__';
+
+export const DEFAULT_RESULT_FILTERS: ResultFilterState = {
+  category: 'all',
+  kind: '',
+  brand: '',
+  onlyWithPdf: false,
+  onlySaved: false,
+  sort: 'relevance',
+};
+
+export function isDefaultResultFilters(filters: ResultFilterState): boolean {
+  return (
+    filters.category === 'all' &&
+    filters.kind === '' &&
+    filters.brand === '' &&
+    !filters.onlyWithPdf &&
+    !filters.onlySaved &&
+    filters.sort === 'relevance'
+  );
+}
+
+export function extractFilterOptions(results: SearchResult[]): {
+  kinds: ProductType[];
+  brands: string[];
+  hasUnbranded: boolean;
+} {
+  const kindSet = new Set<ProductType>();
+  const brandSet = new Set<string>();
+  let hasUnbranded = false;
+
+  for (const item of results) {
+    if (item.kind) kindSet.add(item.kind);
+    if (item.brand) brandSet.add(item.brand);
+    else hasUnbranded = true;
+  }
+
+  return {
+    kinds: [...kindSet].sort((a, b) =>
+      (productKindLabel(a) ?? a).localeCompare(productKindLabel(b) ?? b, 'ru'),
+    ),
+    brands: [...brandSet].sort((a, b) => a.localeCompare(b, 'ru')),
+    hasUnbranded,
+  };
+}
+
+function documentedScore(result: SearchResult): number {
+  let score = 0;
+  if (result.documentUrl) score += 4;
+  if (result.specifications) score += 3;
+  if (result.variants && result.variants.length > 0) score += 2;
+  if (result.confirmedDimming) score += 1;
+  return score;
+}
+
+function variantWidthBounds(result: SearchResult): { min: number; max: number } | undefined {
+  if (!result.variants || result.variants.length === 0) return undefined;
+  const widths = result.variants.map(v => v.widthMm);
+  return { min: Math.min(...widths), max: Math.max(...widths) };
+}
+
+export function filterAndSortResults(
+  results: SearchResult[],
+  filters: ResultFilterState,
+  isSaved?: (result: SearchResult) => boolean,
+): SearchResult[] {
+  const indexed = results
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => {
+      if (filters.category !== 'all') {
+        if (filters.category === 'similar') {
+          if (item.category !== 'visual_alternative' && item.category !== 'technical_alternative') {
+            return false;
+          }
+        } else if (item.category !== filters.category) {
+          return false;
+        }
+      }
+      if (filters.kind && item.kind !== filters.kind) return false;
+      if (filters.brand) {
+        if (filters.brand === UNBRANDED_FILTER_VALUE) {
+          if (item.brand) return false;
+        } else if (item.brand !== filters.brand) {
+          return false;
+        }
+      }
+      if (filters.onlyWithPdf && !item.documentUrl) return false;
+      if (filters.onlySaved && (!isSaved || !isSaved(item))) return false;
+      return true;
+    });
+
+  if (filters.sort === 'name') {
+    indexed.sort((a, b) => {
+      const nameA = [a.item.brand, a.item.name].filter(Boolean).join(' ');
+      const nameB = [b.item.brand, b.item.name].filter(Boolean).join(' ');
+      return nameA.localeCompare(nameB, 'ru') || a.index - b.index;
+    });
+  } else if (filters.sort === 'docs_first') {
+    indexed.sort((a, b) => documentedScore(b.item) - documentedScore(a.item) || a.index - b.index);
+  } else if (filters.sort === 'width_asc' || filters.sort === 'width_desc') {
+    indexed.sort((a, b) => {
+      const widthA = variantWidthBounds(a.item);
+      const widthB = variantWidthBounds(b.item);
+      if (!widthA && !widthB) return a.index - b.index;
+      if (!widthA) return 1;
+      if (!widthB) return -1;
+      const diff =
+        filters.sort === 'width_asc' ? widthA.min - widthB.min : widthB.max - widthA.max;
+      return diff || a.index - b.index;
+    });
+  }
+
+  return indexed.map(entry => entry.item);
+}
+
+export function buildUnconfirmedChecklist(result: SearchResult, selectedSku?: string): string[] {
+  const items: string[] = [
+    'Совпадение модели с вашим фото не подтверждено автоматически (Original not verified) — требуется визуальная сверка по карточке производителя.',
+  ];
+
+  const variants = result.variants ?? [];
+  const chosenVariant = selectedSku ? variants.find(v => v.sku === selectedSku) : undefined;
+  if (variants.length === 0) {
+    items.push('Габаритные размеры (мм) и чертёж корпуса отсутствуют в записи — запросить у фабрики.');
+  } else if (!chosenVariant) {
+    items.push('Артикул (SKU) ещё не выбран — выберите вариант перед переносом в Quick RFQ или уточните габариты в форме.');
+  }
+
+  const specs = readResultSpecifications(result);
+  if (specs?.finishes && specs.finishes.length > 0) {
+    items.push('Конкретная отделка, цвет и согласование образцов материалов фиксируются отдельно в Quick RFQ (Strict Materials).');
+  } else {
+    items.push('Основа материала, отделка и цвет не подтверждены — заполнить и согласовать отдельно в RFQ.');
+  }
+
+  if (specs?.lighting) {
+    items.push('Направление света (вверх/вниз), мощность, CCT и световой поток не привязаны к конкретному SKU в техпаспорте — уточнить при заказе.');
+  } else {
+    items.push('Мощность (Вт), световой поток (Лм), CCT, CRI и тип диммирования требуют подтверждения.');
+  }
+
+  items.push('Цена, MOQ, сроки производства, сертификаты и монтажные уровни (потолок / стол / длины подвесов) остаются пустыми до подтверждения фабрикой.');
+  return items;
 }
 
 export function resolveLocalMatchResult(match: LocalSearchMatch): SearchResult | undefined {

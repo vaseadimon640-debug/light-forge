@@ -287,3 +287,94 @@ export function LayersIcon(props: IconProps) {
   );
 }
 
+export function RotateCcwIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 11a8 8 0 1 1 2.3 5.65" />
+      <path d="M4 4v7h7" />
+    </Icon>
+  );
+}
+
+export function RotateCwIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M20 11a8 8 0 1 0-2.3 5.65" />
+      <path d="M20 4v7h-7" />
+    </Icon>
+  );
+}
+
+export function ZoomInIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.8-3.8M11 8v6M8 11h6" />
+    </Icon>
+  );
+}
+
+export function ZoomOutIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.8-3.8M8 11h6" />
+    </Icon>
+  );
+}
+
+export function ClipboardIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="8" y="3" width="8" height="4" rx="1" />
+      <path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2" />
+    </Icon>
+  );
+}
+
+export function GridIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+    </Icon>
+  );
+}
+
+export function TableIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 10h18M3 15h18M9 10v10" />
+    </Icon>
+  );
+}
+
+export function ArrowLeftIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M19 12H5m0 0 6 6m-6-6 6-6" />
+    </Icon>
+  );
+}
+
+export function EyeIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="2.75" />
+    </Icon>
+  );
+}
+
+export function FilterIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3.5 5.5h17l-6.5 7.2V19l-4-2v-4.3L3.5 5.5Z" />
+    </Icon>
+  );
+}
+
+

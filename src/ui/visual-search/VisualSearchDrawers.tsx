@@ -291,6 +291,8 @@ export function SettingsDrawer({
 type LensDrawerProps = {
   open: boolean;
   hasPhoto: boolean;
+  primaryPhotoName?: string;
+  transformSummary?: string;
   onClose: () => void;
   onDownloadLensCopy: () => void;
   onDownloadOriginal: () => void;
@@ -300,6 +302,8 @@ type LensDrawerProps = {
 export function LensDrawer({
   open,
   hasPhoto,
+  primaryPhotoName,
+  transformSummary,
   onClose,
   onDownloadLensCopy,
   onDownloadOriginal,
@@ -334,8 +338,8 @@ export function LensDrawer({
           <strong>Подготовьте фотографию</strong>
           <p>
             {hasPhoto
-              ? 'Скачайте оптимизированную копию выделенной области или исходный оригинал.'
-              : 'Сначала загрузите фото светильника на главном экране или сразу перейдите в Google Lens.'}
+              ? `Основное фото: ${primaryPhotoName ?? 'загруженное фото'}${transformSummary ? ` (${transformSummary})` : ''}. Скачайте рабочую копию с учётом поворота и выделения или исходный оригинал.`
+              : 'Сначала загрузите или вставьте фото светильника (Ctrl+V / ⌘V) или сразу перейдите в Google Lens.'}
           </p>
           <div className="vs-step-actions">
             {hasPhoto && (
