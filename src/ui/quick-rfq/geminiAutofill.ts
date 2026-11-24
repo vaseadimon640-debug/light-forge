@@ -203,6 +203,7 @@ export type GeminiProposalPayload =
   | { kind: 'lightDirection'; directionId: NonNullable<Component['light']['directionId']> }
   | { kind: 'ipRating'; value: NonNullable<Component['light']['ip']> }
   | { kind: 'dimming'; value: NonNullable<Component['light']['dimming']> }
+  | { kind: 'voltage'; value: NonNullable<Component['light']['voltage']> }
   | {
       kind: 'material';
       part: string;
@@ -558,21 +559,52 @@ export function buildDrawingProposals(
   }
 
   if (analysis.electrical.voltage.value && analysis.electrical.voltage.status !== 'unknown') {
+    const rawV = analysis.electrical.voltage.value;
+    const normalizedVoltage: NonNullable<Component['light']['voltage']> | null =
+      /220|230|240/i.test(rawV) && !/110|100/i.test(rawV)
+        ? '220–240 V AC'
+        : /100.*277|100.*240|universal/i.test(rawV)
+          ? '100–277 V AC'
+          : /110|120/i.test(rawV)
+            ? '110–120 V AC'
+            : /48\s*v/i.test(rawV)
+              ? '48 V DC'
+              : /24\s*v/i.test(rawV)
+                ? '24 V DC'
+                : null;
     const source = analysis.electrical.voltage.status === 'confirmed' ? 'documentation' : 'estimated';
-    const line = `[Чертёж · ${analysis.electrical.voltage.status === 'confirmed' ? 'Confirmed' : 'Estimated'}] Напряжение (Voltage): ${analysis.electrical.voltage.value}`;
-    proposals.push({
-      id: 'drawing-voltage',
-      category: 'Электрика / свет',
-      label: 'Напряжение (Voltage → примечания)',
-      proposedDisplay: analysis.electrical.voltage.value,
-      currentDisplay: project.notes.includes(analysis.electrical.voltage.value) ? 'Уже в примечаниях' : 'Не указано',
-      status: analysis.electrical.voltage.status,
-      source,
-      hasManualValue: false,
-      defaultChecked: !project.notes.includes(analysis.electrical.voltage.value),
-      note: formatProvenance(analysis.electrical.voltage.provenance),
-      payload: { kind: 'noteLine', line },
-    });
+    if (normalizedVoltage) {
+      const existing = comp.light.voltage;
+      const hasManual = manualTouchedFields.has('light:0:voltage') || Boolean(existing);
+      proposals.push({
+        id: 'drawing-voltage',
+        category: 'Электрика / свет',
+        label: 'Входное напряжение (Voltage)',
+        proposedDisplay: normalizedVoltage,
+        currentDisplay: existing ?? 'Не задано',
+        status: analysis.electrical.voltage.status,
+        source,
+        hasManualValue: hasManual,
+        defaultChecked: !hasManual && !existing,
+        note: formatProvenance(analysis.electrical.voltage.provenance),
+        payload: { kind: 'voltage', value: normalizedVoltage },
+      });
+    } else {
+      const line = `[Чертёж · ${analysis.electrical.voltage.status === 'confirmed' ? 'Confirmed' : 'Estimated'}] Напряжение (Voltage): ${rawV}`;
+      proposals.push({
+        id: 'drawing-voltage',
+        category: 'Электрика / свет',
+        label: 'Напряжение (Voltage → примечания)',
+        proposedDisplay: rawV,
+        currentDisplay: project.notes.includes(rawV) ? 'Уже в примечаниях' : 'Не указано',
+        status: analysis.electrical.voltage.status,
+        source,
+        hasManualValue: false,
+        defaultChecked: !project.notes.includes(rawV),
+        note: formatProvenance(analysis.electrical.voltage.provenance),
+        payload: { kind: 'noteLine', line },
+      });
+    }
   }
 
   for (const [index, mat] of analysis.materials.entries()) {
@@ -654,7 +686,11 @@ export function applyGeminiProposals(
     }
 
     if (payload.kind === 'productKind') {
+      const prevKind = nextProject.kind;
       nextProject = { ...nextProject, kind: payload.value };
+      if (nextProject.components.length === 1 && target.kind === prevKind) {
+        target.kind = payload.value;
+      }
       appliedCount += 1;
       continue;
     }
@@ -702,6 +738,12 @@ export function applyGeminiProposals(
 
     if (payload.kind === 'dimming') {
       target.light = { ...target.light, dimming: payload.value };
+      appliedCount += 1;
+      continue;
+    }
+
+    if (payload.kind === 'voltage') {
+      target.light = { ...target.light, voltage: payload.value };
       appliedCount += 1;
       continue;
     }

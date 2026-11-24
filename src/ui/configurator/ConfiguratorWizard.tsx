@@ -19,13 +19,10 @@ import {
 } from '../quick-rfq/geminiAutofill';
 import { removePhotoFromSnapshot, setPrimaryPhoto } from '../quick-rfq/helpers';
 import { DimensionsStage } from './DimensionsStage';
+import { LightingStage } from './LightingStage';
+import { MaterialsStage } from './MaterialsStage';
 import { UploadStage } from './UploadStage';
-import {
-  InstallationStage,
-  LightingStage,
-  MaterialsStage,
-  Review3DStage,
-} from './WizardSecondaryStages';
+import { InstallationStage, Review3DStage } from './WizardSecondaryStages';
 import {
   commitWizardProject,
   computeStepBadges,
@@ -523,6 +520,7 @@ export function ConfiguratorWizard() {
           <MaterialsStage
             project={project}
             photoUrls={photoUrls}
+            aiPhoto={aiPhoto}
             onUpdateProject={handleUpdateProject}
             onBack={() => setStep('dimensions')}
             onNext={() => setStep('lighting')}
