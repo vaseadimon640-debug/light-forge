@@ -6,12 +6,14 @@ import {
   addCanopyToComposition,
   addElementToComposition,
   addSuspensionToComposition,
+  buildCompositionOutline,
   cloneCompositionWithNewId,
   collectMissingInputs,
   computeElementDistances,
   computeVisualLayout,
   formatGeometryIssuePath,
   formatSuspensionFormula,
+  linkCompositionToProject,
   removeCanopyExitFromComposition,
   removeElementAttachmentFromComposition,
   removeSuspensionGuidePoint,
@@ -225,3 +227,39 @@ test('cloneCompositionWithNewId creates distinct valid IDs and empty name errors
   assert.equal(formatGeometryIssuePath(emptyName.issues[0].path), 'Название композиции');
   assert.equal(emptyName.issues[0].message, 'Поле не может быть пустым.');
 });
+
+test('buildCompositionOutline exposes honest MYLINE 4-arc unknown tabletop state and engineering suspension lengths', () => {
+  const myline = createMylineComposition();
+  const resolvedMyline = resolveComposition(myline);
+  const mylineOutline = buildCompositionOutline(myline, resolvedMyline);
+
+  assert.equal(mylineOutline.site.ceilingMm, 5750);
+  assert.equal(mylineOutline.site.tabletopMm, undefined);
+  assert.ok(mylineOutline.site.missingCount >= 1);
+  assert.equal(mylineOutline.elements.length, 4);
+  assert.equal(mylineOutline.canopies.length, 0);
+  assert.equal(mylineOutline.suspensions.length, 0);
+  assert.ok(mylineOutline.elements.every(el => el.quality === 'envelope'));
+  assert.match(mylineOutline.elements[0].elevationSummary, /\+900 мм над столом/);
+
+  const example = createGeometryExample();
+  const resolvedExample = resolveComposition(example);
+  const exampleOutline = buildCompositionOutline(example, resolvedExample);
+
+  assert.equal(exampleOutline.site.ceilingMm, 3000);
+  assert.equal(exampleOutline.canopies.length, 1);
+  assert.equal(exampleOutline.suspensions.length, 2);
+  assert.match(exampleOutline.suspensions[0].typeLabel, /Трос/);
+  assert.match(exampleOutline.suspensions[0].pathSummary, /1150 мм/);
+  assert.match(exampleOutline.suspensions[0].cutSummary, /1200 мм/);
+  assert.equal(exampleOutline.suspensions[0].quality, 'specified');
+  assert.match(exampleOutline.suspensions[1].typeLabel, /Ремень/);
+  assert.match(exampleOutline.suspensions[1].cutSummary, /1284 мм/);
+
+  // linkCompositionToProject cleanly attaches and detaches projectId
+  const linked = linkCompositionToProject(myline, 'proj-123');
+  assert.equal(linked.projectId, 'proj-123');
+  const unlinked = linkCompositionToProject(linked, '');
+  assert.equal('projectId' in unlinked, false);
+});
+

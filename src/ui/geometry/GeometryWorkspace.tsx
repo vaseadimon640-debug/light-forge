@@ -3,6 +3,7 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Project } from '@/domain/project';
 import { createGeometryExample, createMylineComposition } from '@/geometry/examples';
 import type { ResolvedComposition } from '@/geometry/result';
 import type { Composition, Shape } from '@/geometry/schema';
@@ -12,6 +13,7 @@ import {
   openCompositionStore,
   type SavedComposition,
 } from '@/storage/compositions';
+import { openProjectStore } from '@/storage/projects';
 import { CanopiesTab, SuspensionsTab } from './CanopiesSuspensionsTab';
 import { CompositionLibraryModal } from './CompositionLibraryModal';
 import { ElementsTab } from './ElementsTab';
@@ -20,6 +22,7 @@ import {
   addElementToComposition,
   addSuspensionToComposition,
   cloneCompositionWithNewId,
+  linkCompositionToProject,
   removeCanopyExitFromComposition,
   removeCanopyFromComposition,
   removeElementAttachmentFromComposition,
@@ -33,6 +36,7 @@ import {
 } from './helpers';
 import { LevelsSummaryTab } from './LevelsSummaryTab';
 import type { SelectionTarget } from './Scene3D';
+import { SceneOutliner } from './SceneOutliner';
 import './geometry.css';
 
 const Scene3D = dynamic(() => import('./Scene3D').then(mod => mod.Scene3D), {
@@ -82,8 +86,11 @@ export function GeometryWorkspace() {
   const [showDimensions, setShowDimensions] = useState<boolean>(true);
   const [showRoomPlanes, setShowRoomPlanes] = useState<boolean>(true);
   const [compactViewport, setCompactViewport] = useState<boolean>(false);
+  const [outlinerOpen, setOutlinerOpen] = useState<boolean>(true);
+  const [mobilePane, setMobilePane] = useState<'scene' | 'outliner' | 'inspector'>('scene');
 
-  // Server API verification & IndexedDB storage
+  // Linked RFQ projects + Server API verification & IndexedDB storage
+  const [projects, setProjects] = useState<Project[]>([]);
   const [apiStatus, setApiStatus] = useState<{ state: 'idle' | 'checking' | 'ok' | 'error'; message: string }>({
     state: 'idle',
     message: '',
@@ -113,6 +120,62 @@ export function GeometryWorkspace() {
     mq.addEventListener('change', sync);
     return () => mq.removeEventListener('change', sync);
   }, []);
+
+  // Load saved RFQ projects & honor ?rfqProject=ID handoff
+  useEffect(() => {
+    let active = true;
+    async function loadLinkedContext() {
+      let loadedProjects: Project[] = [];
+      try {
+        const pStore = await openProjectStore();
+        try {
+          loadedProjects = await pStore.list();
+        } finally {
+          pStore.close();
+        }
+      } catch {
+        // IndexedDB optional
+      }
+      if (!active) return;
+      setProjects(loadedProjects);
+
+      const urlProjectId = new URLSearchParams(window.location.search).get('rfqProject');
+      if (!urlProjectId) return;
+
+      try {
+        const cStore = await openCompositionStore();
+        try {
+          const allComps = await cStore.list();
+          if (!active) return;
+          const match = allComps.find(item => item.composition.projectId === urlProjectId);
+          if (match) {
+            loadedSavedIdRef.current = match.composition.id;
+            setComposition(match.composition);
+            const firstEl = match.composition.elements[0]?.id ?? '';
+            setSelectedElementId(firstEl);
+            setSelection(firstEl ? { kind: 'element', id: firstEl } : null);
+            showToast(`Открыта 3D-композиция «${match.composition.name}» для выбранного проекта`);
+            return;
+          }
+        } finally {
+          cStore.close();
+        }
+      } catch {
+        // Ignore geometry store errors
+      }
+
+      if (active && loadedProjects.some(p => p.id === urlProjectId)) {
+        setComposition(cur => linkCompositionToProject(cur, urlProjectId));
+        const target = loadedProjects.find(p => p.id === urlProjectId);
+        if (target) showToast(`Композиция привязана к проекту «${target.name}»`);
+      }
+    }
+
+    void loadLinkedContext();
+    return () => {
+      active = false;
+    };
+  }, [showToast]);
 
   useEffect(() => {
     return () => {
@@ -333,8 +396,32 @@ export function GeometryWorkspace() {
     showToast('Снимок 3D-вида сохранён как PNG для RFQ');
   }, [composition.id, showToast]);
 
+  const handleSaveAndOpenDocuments = useCallback(async () => {
+    if (!composition.projectId) return;
+    if (localResult.issues.length > 0) {
+      showToast('Устраните ошибки геометрии перед переходом к документам');
+      setActiveTab('levels');
+      setMobilePane('inspector');
+      return;
+    }
+    try {
+      const store = await openCompositionStore();
+      try {
+        await store.save(composition);
+        loadedSavedIdRef.current = composition.id;
+      } finally {
+        store.close();
+      }
+      window.location.assign(`/documents?rfqProject=${encodeURIComponent(composition.projectId)}`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Не удалось сохранить 3D-композицию');
+    }
+  }, [composition, localResult.issues.length, showToast]);
+
   const hasUnknownTabletop = !composition.site.tabletopFromFloorMm;
   const hasEnvelope = composition.elements.some(el => el.shape.type === 'envelope');
+  const totalStructureCount =
+    composition.elements.length + composition.canopies.length + composition.suspensions.length;
 
   return (
     <div className="lfg-root">
@@ -353,6 +440,15 @@ export function GeometryWorkspace() {
         </div>
 
         <div className="lfg-actions">
+          <button
+            id="lfg-toggle-outliner"
+            type="button"
+            className={`lfg-btn lfg-btn--sm${outlinerOpen ? ' lfg-btn--active' : ''}`}
+            aria-pressed={outlinerOpen}
+            onClick={() => setOutlinerOpen(v => !v)}
+          >
+            Структура ({totalStructureCount})
+          </button>
           <button
             id="lfg-preset-myline"
             type="button"
@@ -405,9 +501,111 @@ export function GeometryWorkspace() {
         </div>
       </header>
 
-      {/* Main Studio Workspace */}
-      <main className="lfg-workspace">
-        {/* Left: Interactive 3D Viewport */}
+      {/* Mobile & Tablet 3-Pane Mode Switcher */}
+      <div id="lfg-mobile-mode-bar" className="lfg-mobile-mode-bar">
+        <div className="lfg-segment" role="tablist" aria-label="Панели 3D Studio">
+          <button
+            id="lfg-mobile-pane-scene"
+            type="button"
+            role="tab"
+            className="lfg-seg-btn"
+            aria-selected={mobilePane === 'scene'}
+            onClick={() => setMobilePane('scene')}
+          >
+            Сцена 3D
+          </button>
+          <button
+            id="lfg-mobile-pane-outliner"
+            type="button"
+            role="tab"
+            className="lfg-seg-btn"
+            aria-selected={mobilePane === 'outliner'}
+            onClick={() => setMobilePane('outliner')}
+          >
+            Структура ({totalStructureCount})
+          </button>
+          <button
+            id="lfg-mobile-pane-inspector"
+            type="button"
+            role="tab"
+            className="lfg-seg-btn"
+            aria-selected={mobilePane === 'inspector'}
+            onClick={() => setMobilePane('inspector')}
+          >
+            Свойства
+          </button>
+        </div>
+      </div>
+
+      {/* Main 3-Pane Studio Workspace: Outliner | 3D Scene | Inspector */}
+      <main
+        className="lfg-workspace lfg-workspace--three-pane"
+        data-outliner={outlinerOpen ? 'open' : 'collapsed'}
+        data-mobile-pane={mobilePane}
+      >
+        <SceneOutliner
+          composition={composition}
+          resolved={activeResolved}
+          selection={selection}
+          activeTab={activeTab}
+          projects={projects}
+          onLinkProject={projectId => {
+            setComposition(cur => linkCompositionToProject(cur, projectId));
+            const found = projects.find(p => p.id === projectId);
+            showToast(found ? `Привязано к проекту «${found.name}»` : 'Привязка к проекту снята');
+          }}
+          onSaveAndOpenDocuments={() => void handleSaveAndOpenDocuments()}
+          onSelectElement={id => {
+            setSelectedElementId(id);
+            setSelection({ kind: 'element', id });
+            setActiveTab('elements');
+            setMobilePane('inspector');
+          }}
+          onSelectCanopy={id => {
+            setSelectedCanopyId(id);
+            setSelection({ kind: 'canopy', id });
+            setActiveTab('canopies');
+            setMobilePane('inspector');
+          }}
+          onSelectSuspension={id => {
+            setSelectedSuspensionId(id);
+            setSelection({ kind: 'suspension', id });
+            setActiveTab('suspensions');
+            setMobilePane('inspector');
+          }}
+          onSelectLevels={() => {
+            setActiveTab('levels');
+            setMobilePane('inspector');
+          }}
+          onAddElement={shapeType => {
+            const next = addElementToComposition(composition, shapeType);
+            setComposition(next.composition);
+            setSelectedElementId(next.elementId);
+            setSelection({ kind: 'element', id: next.elementId });
+            setActiveTab('elements');
+            setMobilePane('inspector');
+          }}
+          onAddCanopy={() => {
+            const next = addCanopyToComposition(composition, 'round');
+            setComposition(next.composition);
+            setSelectedCanopyId(next.canopyId);
+            setSelection({ kind: 'canopy', id: next.canopyId });
+            setActiveTab('canopies');
+            setMobilePane('inspector');
+          }}
+          onAddSuspension={type => {
+            const next = addSuspensionToComposition(composition, type);
+            if (next.suspensionId) {
+              setComposition(next.composition);
+              setSelectedSuspensionId(next.suspensionId);
+              setSelection({ kind: 'suspension', id: next.suspensionId });
+              setActiveTab('suspensions');
+              setMobilePane('inspector');
+            }
+          }}
+        />
+
+        {/* Center: Interactive 3D Viewport */}
         <section className="lfg-viewport-pane" aria-label="Интерактивный 3D-просмотр">
           <div className="lfg-canvas-wrap">
             <div className="lfg-canvas-stage">

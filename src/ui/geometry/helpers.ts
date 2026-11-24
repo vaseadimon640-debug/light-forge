@@ -724,3 +724,153 @@ export async function resolveCompositionViaApi(
     issues,
   };
 }
+
+export type OutlineQuality = 'specified' | 'estimated' | 'unknown' | 'envelope' | 'invalid';
+
+export type CompositionOutline = {
+  site: {
+    ceilingMm?: number;
+    tabletopMm?: number;
+    missingCount: number;
+  };
+  elements: {
+    id: string;
+    name: string;
+    shapeLabel: string;
+    dimsSummary: string;
+    elevationSummary: string;
+    quality: OutlineQuality;
+  }[];
+  canopies: {
+    id: string;
+    name: string;
+    footprintSummary: string;
+    exitCount: number;
+  }[];
+  suspensions: {
+    id: string;
+    typeLabel: string;
+    pathSummary: string;
+    cutSummary: string;
+    quality: OutlineQuality;
+  }[];
+};
+
+const outlineShapeLabels: Record<Shape['type'], string> = {
+  arc: 'Дуга',
+  ring: 'Кольцо',
+  linear: 'Линейный',
+  envelope: 'Габарит',
+};
+
+export function buildCompositionOutline(
+  composition: Composition,
+  resolved: ResolvedComposition | null,
+): CompositionOutline {
+  const missingInputs = resolved ? collectMissingInputs(resolved) : [];
+  const elements = composition.elements.map(el => {
+    const resEl = resolved?.elements.find(item => item.id === el.id);
+    const dimsSummary = resEl
+      ? `${Math.round(resEl.geometry.widthMm)}×${Math.round(resEl.geometry.depthMm)}×${Math.round(resEl.geometry.heightMm)} мм`
+      : '—';
+
+    let elevationSummary = 'Уровень не задан';
+    if (el.position.lowest.datum === 'tabletop') {
+      elevationSummary = `+${Math.round(el.position.lowest.offsetMm.value)} мм над столом`;
+    } else if (el.position.lowest.datum === 'floor') {
+      elevationSummary = `${Math.round(el.position.lowest.offsetMm.value)} мм от пола`;
+    } else {
+      elevationSummary = `${Math.round(el.position.lowest.offsetMm.value)} мм от потолка`;
+    }
+
+    let quality: OutlineQuality = 'specified';
+    if (el.shape.type === 'envelope') {
+      quality = 'envelope';
+    } else if (!resEl || resEl.origin.z.valueMm === null || resEl.origin.x.valueMm === null) {
+      quality = 'unknown';
+    } else if (
+      resEl.origin.z.quality === 'estimated' ||
+      resEl.origin.x.quality === 'estimated'
+    ) {
+      quality = 'estimated';
+    }
+
+    return {
+      id: el.id,
+      name: el.name || el.id,
+      shapeLabel: outlineShapeLabels[el.shape.type],
+      dimsSummary,
+      elevationSummary,
+      quality,
+    };
+  });
+
+  const canopies = composition.canopies.map(canopy => ({
+    id: canopy.id,
+    name: canopy.name || canopy.id,
+    footprintSummary:
+      canopy.footprint.type === 'round'
+        ? `Ø${Math.round(canopy.footprint.diameterMm.value)} × H${Math.round(canopy.dropMm.value)} мм`
+        : `${Math.round(canopy.footprint.widthMm.value)}×${Math.round(canopy.footprint.depthMm.value)} × H${Math.round(canopy.dropMm.value)} мм`,
+    exitCount: canopy.exits.length,
+  }));
+
+  const suspensions = composition.suspensions.map(susp => {
+    const resSusp = resolved?.suspensions.find(item => item.id === susp.id);
+    const typeLabel = susp.type === 'loadBearingCable' ? 'Трос (несущий)' : 'Ремень (декор)';
+    if (resSusp?.status === 'invalid') {
+      return {
+        id: susp.id,
+        typeLabel,
+        pathSummary: 'Некорректные уровни',
+        cutSummary: 'Проверить отметки',
+        quality: 'invalid' as const,
+      };
+    }
+    const pathMm = resSusp?.pathLength.valueMm;
+    const cutMm = resSusp?.cutLength.valueMm;
+    const pathSummary = pathMm != null ? `Путь: ${Math.round(pathMm)} мм` : 'Путь: неизвестно';
+    const cutSummary = cutMm != null ? `Заготовка: ${Math.round(cutMm)} мм` : 'Припуск не задан';
+    let quality: OutlineQuality = 'unknown';
+    if (pathMm != null && cutMm != null) {
+      quality =
+        resSusp?.cutLength.quality === 'estimated' || resSusp?.pathLength.quality === 'estimated'
+          ? 'estimated'
+          : 'specified';
+    } else if (pathMm != null) {
+      quality = resSusp?.pathLength.quality === 'estimated' ? 'estimated' : 'unknown';
+    }
+
+    return {
+      id: susp.id,
+      typeLabel,
+      pathSummary,
+      cutSummary,
+      quality,
+    };
+  });
+
+  return {
+    site: {
+      ceilingMm: composition.site.ceilingFromFloorMm?.value,
+      tabletopMm: composition.site.tabletopFromFloorMm?.value,
+      missingCount: missingInputs.length,
+    },
+    elements,
+    canopies,
+    suspensions,
+  };
+}
+
+export function linkCompositionToProject(
+  composition: Composition,
+  projectId: string | undefined,
+): Composition {
+  const clean = projectId?.trim() || undefined;
+  if (clean) {
+    return { ...composition, projectId: clean };
+  }
+  const { projectId: _removed, ...rest } = composition;
+  return rest;
+}
+
