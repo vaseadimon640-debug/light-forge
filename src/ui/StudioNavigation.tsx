@@ -8,7 +8,7 @@ import { BrandMarkIcon, ColumnsIcon, EditIcon, FilePdfIcon, FolderIcon, LayersIc
 const sections = [
   { label: 'Рабочий стол', href: '/dashboard', Icon: SparkIcon },
   { label: 'AI Visual Search', href: '/search', Icon: SearchIcon },
-  { label: 'Конфигурация', href: '/#project-heading', Icon: EditIcon },
+  { label: 'Конфигурация', href: '/configure', Icon: EditIcon },
   { label: '3D Studio', href: '/geometry', Icon: LayersIcon },
   { label: 'Manufacturing RFQ', href: '/', Icon: FilePdfIcon },
   { label: 'Проекты и библиотека', href: '/projects', Icon: FolderIcon },
@@ -22,7 +22,7 @@ export function StudioNavigation({ children }: { children: ReactNode }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [recent, setRecent] = useState<{ id: string; name: string }>();
-  const editor = pathname === '/' || pathname === '/geometry' || pathname === '/search';
+  const editor = pathname === '/configure' || pathname === '/' || pathname === '/geometry' || pathname === '/search';
   const target = editor ? '_blank' : undefined;
 
   useEffect(() => {
