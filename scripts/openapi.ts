@@ -1,4 +1,5 @@
 import { searchInputSchema, searchResponseSchema, searchCapabilitiesSchema } from '../src/visual-search/catalogue.ts';
+import { localSearchCapabilitiesSchema, localSearchResponseSchema } from '../src/visual-search/local-contract.ts';
 import { writeFileSync } from 'node:fs';
 import { stringify } from 'yaml';
 import { z } from 'zod';
@@ -154,6 +155,30 @@ const specification = {
         },
       },
     },
+    '/api/visual-search/local': {
+      get: {
+        operationId: 'getLocalVisualSearchCapabilities',
+        responses: { 200: response('Availability and indexed reference count', { $ref: '#/components/schemas/LocalVisualSearchCapabilities' }) },
+      },
+      post: {
+        operationId: 'matchLocalVisualReferences',
+        description: 'Compare one JPEG, PNG or WebP image of up to 5 MiB with the configured local catalogue.',
+        requestBody: { required: true, content: { 'multipart/form-data': { schema: {
+          type: 'object', required: ['input'], properties: {
+            input: { type: 'string', description: 'JSON object with one photo metadata field, {photo:{id,name,type,size}}' },
+          }, patternProperties: { '^photo:[A-Za-z0-9_-]{1,64}$': { type: 'string', format: 'binary' } },
+        } } } },
+        responses: {
+          200: response('Up to five image matches', { $ref: '#/components/schemas/LocalVisualSearchResponse' }),
+          400: { description: 'Invalid body' },
+          403: { description: 'Cross-site request rejected' },
+          413: { description: 'Upload too large' },
+          415: { description: 'Unsupported media type' },
+          422: { description: 'Invalid photo' },
+          503: { description: 'Local index absent or invalid' },
+        },
+      },
+    },
     '/api/health': {
       get: {
         operationId: 'health',
@@ -175,6 +200,8 @@ const specification = {
       VisualSearchInput: jsonSchema(searchInputSchema),
       VisualSearchResponse: jsonSchema(searchResponseSchema),
       VisualSearchCapabilities: jsonSchema(searchCapabilitiesSchema),
+      LocalVisualSearchCapabilities: jsonSchema(localSearchCapabilitiesSchema),
+      LocalVisualSearchResponse: jsonSchema(localSearchResponseSchema),
       PhotoAnalysisInput: jsonSchema(photoAnalysisInputSchema),
       PhotoAnalysisCapabilities: jsonSchema(photoAnalysisCapabilitiesSchema),
       PhotoAnalysisResponse: jsonSchema(photoAnalysisResponseSchema),

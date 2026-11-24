@@ -288,6 +288,56 @@ paths:
           description: Unsupported media type
         "422":
           description: Invalid search or photo
+  /api/visual-search/local:
+    get:
+      operationId: getLocalVisualSearchCapabilities
+      responses:
+        "200":
+          description: Availability and indexed reference count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalVisualSearchCapabilities"
+    post:
+      operationId: matchLocalVisualReferences
+      description: Compare one JPEG, PNG or WebP image of up to 5 MiB with the
+        configured local catalogue.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - input
+              properties:
+                input:
+                  type: string
+                  description: JSON object with one photo metadata field,
+                    {photo:{id,name,type,size}}
+              patternProperties:
+                ^photo:[A-Za-z0-9_-]{1,64}$:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Up to five image matches
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalVisualSearchResponse"
+        "400":
+          description: Invalid body
+        "403":
+          description: Cross-site request rejected
+        "413":
+          description: Upload too large
+        "415":
+          description: Unsupported media type
+        "422":
+          description: Invalid photo
+        "503":
+          description: Local index absent or invalid
   /api/health:
     get:
       operationId: health
@@ -4969,6 +5019,56 @@ components:
         - serpApi
         - manualLens
         - paidEnabled
+      additionalProperties: false
+    LocalVisualSearchCapabilities:
+      type: object
+      properties:
+        available:
+          type: boolean
+        referenceCount:
+          type: integer
+          minimum: 0
+          maximum: 256
+      required:
+        - available
+        - referenceCount
+      additionalProperties: false
+    LocalVisualSearchResponse:
+      type: object
+      properties:
+        matches:
+          maxItems: 5
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                pattern: ^[a-zA-Z0-9_-]{1,64}$
+              title:
+                type: string
+                minLength: 1
+                maxLength: 180
+              source:
+                type: string
+                maxLength: 2048
+                format: uri
+              match:
+                type: string
+                enum:
+                  - same_file
+                  - similar_image
+            required:
+              - id
+              - title
+              - match
+            additionalProperties: false
+        originalVerified:
+          type: boolean
+          const: false
+      required:
+        - matches
+        - originalVerified
       additionalProperties: false
     PhotoAnalysisInput:
       type: object
