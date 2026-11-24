@@ -1061,3 +1061,313 @@
     align-items: stretch;
   }
 }
+
+/* ==========================================================================
+   Phase 6 — 3-Pane CAD Outliner, Mobile Mode Switch & Dark Theme Atelier
+   ========================================================================== */
+
+.lfg-workspace--three-pane {
+  grid-template-columns: 256px minmax(0, 1.35fr) minmax(350px, 430px);
+}
+
+.lfg-workspace--three-pane[data-outliner='collapsed'] {
+  grid-template-columns: minmax(0, 1.45fr) minmax(360px, 450px);
+}
+
+.lfg-workspace--three-pane[data-outliner='collapsed'] .lfg-outliner {
+  display: none;
+}
+
+.lfg-outliner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.lfg-outliner-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lfg-outliner-section:last-child {
+  border-bottom: 0;
+  padding-bottom: 4px;
+}
+
+.lfg-outliner-project {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+
+.lfg-outliner-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.lfg-outliner-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.lfg-outliner-quick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lfg-outliner-select {
+  width: 100%;
+  min-height: 32px;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.lfg-outliner-project-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.lfg-outliner-project-actions .lfg-btn {
+  flex: 1 1 auto;
+}
+
+.lfg-tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.lfg-tree-item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px;
+  border-radius: var(--radius-xs);
+  border: 1px solid transparent;
+  background: var(--bg-subtle);
+  color: var(--ink-primary);
+  text-align: left;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.lfg-tree-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.lfg-tree-item--active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+.lfg-tree-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.lfg-tree-main strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.lfg-tree-sub {
+  font-size: 11px;
+  color: var(--ink-secondary);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.lfg-tree-empty {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  line-height: 1.35;
+}
+
+.lfg-tree-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.lfg-tree-dot--specified {
+  background: var(--success);
+}
+
+.lfg-tree-dot--unknown {
+  background: var(--warning);
+}
+
+.lfg-tree-pill {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.lfg-tree-pill--specified {
+  background: var(--status-spec-bg);
+  color: var(--status-spec-ink);
+}
+
+.lfg-tree-pill--estimated {
+  background: var(--status-est-bg);
+  color: var(--status-est-ink);
+}
+
+.lfg-tree-pill--envelope,
+.lfg-tree-pill--unknown {
+  background: var(--status-unk-bg);
+  color: var(--status-unk-ink);
+}
+
+.lfg-tree-pill--invalid {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* Mobile 3-Pane Mode Switcher (visible <= 1024px) */
+.lfg-mobile-mode-bar {
+  display: none;
+}
+
+@media (max-width: 1260px) {
+  .lfg-workspace--three-pane {
+    grid-template-columns: 224px minmax(0, 1.25fr) minmax(330px, 390px);
+  }
+}
+
+@media (max-width: 1024px) {
+  #lfg-toggle-outliner {
+    display: none;
+  }
+
+  .lfg-mobile-mode-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .lfg-mobile-mode-bar .lfg-segment {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .lfg-workspace--three-pane,
+  .lfg-workspace--three-pane[data-outliner='collapsed'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lfg-workspace--three-pane[data-mobile-pane='scene'] .lfg-outliner,
+  .lfg-workspace--three-pane[data-mobile-pane='scene'] .lfg-inspector {
+    display: none;
+  }
+
+  .lfg-workspace--three-pane[data-mobile-pane='outliner'] .lfg-viewport-pane,
+  .lfg-workspace--three-pane[data-mobile-pane='outliner'] .lfg-inspector {
+    display: none;
+  }
+
+  .lfg-workspace--three-pane[data-mobile-pane='outliner'] .lfg-outliner {
+    display: flex;
+    border-right: 0;
+    overflow: visible;
+  }
+
+  .lfg-workspace--three-pane[data-mobile-pane='inspector'] .lfg-viewport-pane,
+  .lfg-workspace--three-pane[data-mobile-pane='inspector'] .lfg-outliner {
+    display: none;
+  }
+
+  .lfg-workspace--three-pane[data-mobile-pane='scene'] .lfg-canvas-wrap {
+    height: 60dvh;
+    min-height: 360px;
+  }
+}
+
+@media (max-width: 768px) {
+  .lfg-workspace--three-pane[data-mobile-pane='scene'] .lfg-canvas-wrap {
+    height: auto;
+    min-height: 0;
+  }
+
+  .lfg-workspace--three-pane[data-mobile-pane='scene'] .lfg-canvas-stage {
+    height: 54dvh;
+    min-height: 340px;
+  }
+}
+
+/* Dark Theme Atelier Cohesion for 3D Studio */
+[data-theme='dark'] .lfg-root {
+  --status-spec-bg: #23382e;
+  --status-spec-ink: #a4dfc2;
+  --status-est-bg: #3d3121;
+  --status-est-ink: #f2cb8f;
+  --status-unk-bg: #332e29;
+  --status-unk-ink: #cabcaa;
+  --danger-soft: #3a2321;
+  --danger-border: #6c3d38;
+  --warning-soft: #3b2f1f;
+  --warning-border: #6e5635;
+  --success: #8ed8b4;
+  --success-soft: #23382e;
+}
+
+[data-theme='dark'] .lfg-viewport-pane {
+  background: #201d1a;
+}
+
+[data-theme='dark'] .lfg-hud-group,
+[data-theme='dark'] .lfg-cad-notice {
+  background: rgba(36, 33, 30, 0.94);
+  border-color: var(--border);
+  color: var(--ink-secondary);
+}
+
+[data-theme='dark'] .lfg-btn--brass:hover:not(:disabled) {
+  background: #483a2c;
+}
+
+[data-theme='dark'] .lfg-toast {
+  background: var(--atelier-selected);
+  color: var(--ink-primary);
+  border: 1px solid var(--brass-border);
+}
+

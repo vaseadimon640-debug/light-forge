@@ -618,7 +618,7 @@ export function DocumentsWorkspace() {
             <EditIcon size={14} />
             Конфигуратор
           </a>
-          <a className="lf-btn lf-btn--subtle" href="/geometry">
+          <a className="lf-btn lf-btn--subtle" href={`/geometry${projectLinkSuffix}`}>
             <LayersIcon size={14} />
             3D Studio
           </a>
