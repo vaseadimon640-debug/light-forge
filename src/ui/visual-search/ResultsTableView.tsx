@@ -12,13 +12,16 @@ import {
 } from '../icons';
 import {
   categoryMeta,
+  evidenceBadgeTone,
   extractComparisonSpec,
   extractDisplayHost,
   productKindLabel,
+  type UnifiedCandidate,
 } from './helpers';
 
 type ResultsTableViewProps = {
   results: SearchResult[];
+  candidatesById?: Map<string, UnifiedCandidate>;
   selectedVariants: Record<string, string>;
   compareIds: string[];
   creatingRfqId: string | null;
@@ -32,6 +35,7 @@ type ResultsTableViewProps = {
 
 export function ResultsTableView({
   results,
+  candidatesById,
   selectedVariants,
   compareIds,
   creatingRfqId,
@@ -56,7 +60,7 @@ export function ResultsTableView({
             <span className="vs-count-pill">{results.length}</span>
           </h2>
           <p className="vs-section-desc">
-            Подтверждённые данные из официальных карточек и техпаспортов. Статус совпадения с фото: Original not verified.
+            Объединённые кандидаты без дубликатов из каталога, локального фотоиндекса, Gemini и ссылок Lens. Статус совпадения с фото: Original not verified.
           </p>
         </div>
       </div>
@@ -66,7 +70,7 @@ export function ResultsTableView({
           <table className="vs-results-table">
             <thead>
               <tr>
-                <th scope="col">Модель и источник</th>
+                <th scope="col">Модель и доказательства</th>
                 <th scope="col">Тип</th>
                 <th scope="col">Артикул и габариты (мм)</th>
                 <th scope="col">Материалы / Отделка</th>
@@ -78,6 +82,8 @@ export function ResultsTableView({
             </thead>
             <tbody>
               {results.map(result => {
+                const candidate = candidatesById?.get(result.id);
+                const evidences = candidate?.evidences ?? [];
                 const meta = categoryMeta(result.category);
                 const selectedSku = selectedVariants[result.id] ?? '';
                 const spec = extractComparisonSpec(result, selectedSku);
@@ -88,7 +94,11 @@ export function ResultsTableView({
                 const variants = result.variants ?? [];
 
                 return (
-                  <tr key={result.id} data-result-row={result.id}>
+                  <tr
+                    key={result.id}
+                    data-result-row={result.id}
+                    data-local-match={candidate?.localMatch?.match}
+                  >
                     <td className="vs-table-model-cell">
                       <div className="vs-table-model-top">
                         <span className={`vs-pill vs-pill--${meta.tone}`}>{meta.shortLabel}</span>
@@ -107,6 +117,19 @@ export function ResultsTableView({
                           {host}
                         </a>
                       </span>
+                      {evidences.length > 0 && (
+                        <div className="vs-evidence-strip vs-evidence-strip--compact">
+                          {evidences.map(ev => (
+                            <span
+                              key={`${ev.kind}-${ev.detail}`}
+                              className={`vs-pill vs-pill--${evidenceBadgeTone(ev.kind)}`}
+                              title={ev.detail}
+                            >
+                              {ev.label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </td>
 
                     <td className="vs-table-kind-cell">

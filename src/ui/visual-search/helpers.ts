@@ -475,12 +475,19 @@ export function buildReviewPrompt(
   query: string,
   results: SearchResult[],
   focusedResult?: SearchResult,
+  traits?: string[],
 ): string {
   const lines: string[] = [
     'Проверь фото светильника и найденные ссылки. Опирайся на подтверждённый производителем артикул и официальный первичный источник.',
     'Если оригинал установить нельзя, явно напиши Original not verified. Отличай совпадение фотографии от совпадения изделия.',
     `Исходное описание: ${query.trim() || 'прилагаемое фото'}`,
   ];
+
+  if (traits && traits.length > 0) {
+    lines.push(
+      `Видимые признаки по фото (оценка Gemini, не подтверждает бренд): ${traits.join(', ')}`,
+    );
+  }
 
   if (focusedResult) {
     const title = [focusedResult.brand, focusedResult.name].filter(Boolean).join(' ');
@@ -958,4 +965,286 @@ export function resolveLocalMatchResult(match: LocalSearchMatch): SearchResult |
     return undefined;
   }
 }
+
+export type GeminiSuggestedQuery = {
+  label: string;
+  query: string;
+};
+
+export type GeminiInsights = {
+  shape: string[];
+  suspension: string[];
+  details: string[];
+  suggestedQueries: GeminiSuggestedQuery[];
+};
+
+const shapeTraitPattern =
+  /\b(ring|rings|circle|circular|hoop|arc|arch|arched|curved|linear|bar|tube|cylinder|dome|sphere|globe|cone|oval|square|tier|tiered|cluster|chandelier|pendant|sconce|wall|table|floor|ceiling|lamp|halo|loop|кольц|дуг|линейн|шар|купол|люстр|подвесн|настольн|бра|торшер)\b/iu;
+
+const suspensionTraitPattern =
+  /\b(strap|straps|belt|band|leather|cable|cables|wire|wires|cord|rod|rods|stem|chain|canopy|ceiling\s+rose|suspended|suspension|hanging|hang|mount|mounted|bracket|base|stand|pedestal|tripod|ремен|ремн|трос|подвес|штанга|цеп|основан|стойк)\b/iu;
+
+export function buildGeminiInsights(traits: string[], userQuery = ''): GeminiInsights {
+  const unique = [...new Set(traits.map(item => item.trim()).filter(Boolean))];
+  const shape: string[] = [];
+  const suspension: string[] = [];
+  const details: string[] = [];
+
+  for (const trait of unique) {
+    const isSuspension = suspensionTraitPattern.test(trait);
+    const isShape = shapeTraitPattern.test(trait);
+    if (isShape) {
+      shape.push(trait);
+    } else if (isSuspension) {
+      suspension.push(trait);
+    } else {
+      details.push(trait);
+    }
+  }
+
+  const suggestedQueries: GeminiSuggestedQuery[] = [];
+  const seenQueries = new Set<string>();
+  const pushQuery = (label: string, raw: string) => {
+    const cleaned = raw.replace(/\s+/g, ' ').trim().slice(0, 240);
+    const key = cleaned.toLocaleLowerCase();
+    if (!cleaned || seenQueries.has(key)) return;
+    seenQueries.add(key);
+    suggestedQueries.push({ label, query: cleaned });
+  };
+
+  if (unique.length > 0) {
+    pushQuery('Все признаки кадра', unique.join(' '));
+  }
+  if (shape.length > 0 && suspension.length > 0) {
+    pushQuery('Форма и подвес', [...shape.slice(0, 2), ...suspension.slice(0, 2)].join(' '));
+  }
+  if (shape.length > 0 && details.length > 0) {
+    pushQuery('Форма и детали', [...shape.slice(0, 2), ...details.slice(0, 2)].join(' '));
+  }
+  const cleanUser = userQuery.trim();
+  if (cleanUser && unique.length > 0) {
+    pushQuery('Ваш запрос + признаки', `${cleanUser} ${unique.slice(0, 3).join(' ')}`);
+  }
+
+  return { shape, suspension, details, suggestedQueries };
+}
+
+export type EvidenceKind =
+  | 'manufacturer_catalogue'
+  | 'gemini_visual_traits'
+  | 'local_same_file'
+  | 'local_similar_image'
+  | 'manual_lens_link'
+  | 'catalogue_similarity';
+
+export type CandidateEvidence = {
+  kind: EvidenceKind;
+  label: string;
+  detail: string;
+  sourceUrl?: string;
+};
+
+export type SourceOrigin = 'catalogue' | 'gemini' | 'local_index' | 'manual_link';
+
+export type UnifiedCandidate = {
+  result: SearchResult;
+  evidences: CandidateEvidence[];
+  origins: SourceOrigin[];
+  localMatch?: LocalSearchMatch;
+  originalVerified: false;
+};
+
+export function evidenceBadgeTone(kind: EvidenceKind): CategoryTone {
+  switch (kind) {
+    case 'manufacturer_catalogue':
+    case 'local_same_file':
+      return 'doc';
+    case 'gemini_visual_traits':
+    case 'local_similar_image':
+    case 'catalogue_similarity':
+      return 'est';
+    case 'manual_lens_link':
+    default:
+      return 'accent';
+  }
+}
+
+const evidenceStrength: Record<SearchResult['evidence'], number> = {
+  manufacturer_catalogue: 3,
+  catalogue_similarity: 2,
+  user_link: 1,
+};
+
+function safeCanonicalKey(url: string): string {
+  try {
+    return canonicalSource(url);
+  } catch {
+    return url;
+  }
+}
+
+function mergeResultRecord(existing: SearchResult, incoming: SearchResult): SearchResult {
+  const incomingStronger =
+    evidenceStrength[incoming.evidence] > evidenceStrength[existing.evidence] ||
+    (evidenceStrength[incoming.evidence] === evidenceStrength[existing.evidence] &&
+      categoryPriority[incoming.category] > categoryPriority[existing.category]);
+
+  const primary = incomingStronger ? incoming : existing;
+  const fallback = incomingStronger ? existing : incoming;
+
+  return {
+    ...fallback,
+    ...primary,
+    brand: primary.brand ?? fallback.brand,
+    kind: primary.kind ?? fallback.kind,
+    documentUrl: primary.documentUrl ?? fallback.documentUrl,
+    details: primary.details ?? fallback.details,
+    variants: primary.variants ?? fallback.variants,
+    confirmedDimming: primary.confirmedDimming ?? fallback.confirmedDimming,
+    specifications: primary.specifications ?? fallback.specifications,
+  };
+}
+
+export function mergeAllSearchCandidates({
+  apiResults,
+  localMatches = [],
+  importedResults = [],
+  geminiTraits = [],
+}: {
+  apiResults: SearchResult[];
+  localMatches?: LocalSearchMatch[];
+  importedResults?: SearchResult[];
+  geminiTraits?: string[];
+}): {
+  candidates: UnifiedCandidate[];
+  byId: Map<string, UnifiedCandidate>;
+  unlinkedLocalMatches: LocalSearchMatch[];
+} {
+  const byCanonical = new Map<string, UnifiedCandidate>();
+  const unlinkedLocalMatches: LocalSearchMatch[] = [];
+
+  const upsert = (
+    item: SearchResult,
+    evidences: CandidateEvidence[],
+    origin: SourceOrigin,
+    localMatch?: LocalSearchMatch,
+  ) => {
+    const key = safeCanonicalKey(item.source);
+    const existing = byCanonical.get(key);
+    if (!existing) {
+      byCanonical.set(key, {
+        result: item,
+        evidences: [...evidences],
+        origins: [origin],
+        localMatch,
+        originalVerified: false,
+      });
+      return;
+    }
+
+    const mergedResult = mergeResultRecord(existing.result, item);
+    const mergedEvidences = [...existing.evidences];
+    for (const ev of evidences) {
+      if (!mergedEvidences.some(cur => cur.kind === ev.kind && cur.detail === ev.detail)) {
+        mergedEvidences.push(ev);
+      }
+    }
+    const mergedOrigins = existing.origins.includes(origin)
+      ? existing.origins
+      : [...existing.origins, origin];
+
+    // Prefer same_file over similar_image if both somehow match the same canonical URL
+    const mergedLocalMatch =
+      existing.localMatch?.match === 'same_file'
+        ? existing.localMatch
+        : (localMatch ?? existing.localMatch);
+
+    byCanonical.set(key, {
+      result: mergedResult,
+      evidences: mergedEvidences,
+      origins: mergedOrigins,
+      localMatch: mergedLocalMatch,
+      originalVerified: false,
+    });
+  };
+
+  for (const item of apiResults) {
+    const evidences: CandidateEvidence[] = [];
+    let origin: SourceOrigin = 'catalogue';
+    if (item.evidence === 'manufacturer_catalogue') {
+      evidences.push({
+        kind: 'manufacturer_catalogue',
+        label: 'Каталог производителя',
+        detail: item.documentUrl
+          ? `Официальная карточка (${extractDisplayHost(item.source)}) и PDF техпаспорт`
+          : `Официальная запись каталога (${extractDisplayHost(item.source)})`,
+        sourceUrl: item.source,
+      });
+    } else if (geminiTraits.length > 0) {
+      origin = 'gemini';
+      evidences.push({
+        kind: 'gemini_visual_traits',
+        label: 'Признаки Gemini',
+        detail: geminiTraits.slice(0, 4).join(', '),
+      });
+    } else {
+      evidences.push({
+        kind: 'catalogue_similarity',
+        label: 'Сходство по каталогу',
+        detail: `Совпадение по ключевым признакам (${extractDisplayHost(item.source)})`,
+        sourceUrl: item.source,
+      });
+    }
+    upsert(item, evidences, origin);
+  }
+
+  for (const match of localMatches) {
+    const linked = resolveLocalMatchResult(match);
+    if (!linked) {
+      unlinkedLocalMatches.push(match);
+      continue;
+    }
+    const ev: CandidateEvidence = {
+      kind: match.match === 'same_file' ? 'local_same_file' : 'local_similar_image',
+      label:
+        match.match === 'same_file'
+          ? 'Локальный каталог · Тот же файл'
+          : 'Локальный каталог · Похожий кадр',
+      detail: `${match.title} (${match.id})`,
+      sourceUrl: match.source,
+    };
+    upsert(linked, [ev], 'local_index', match);
+  }
+
+  for (const item of importedResults) {
+    const evidences: CandidateEvidence[] = [
+      {
+        kind: 'manual_lens_link',
+        label: 'Ручная ссылка (Lens / ChatGPT)',
+        detail: extractDisplayHost(item.source),
+        sourceUrl: item.source,
+      },
+    ];
+    if (item.evidence === 'manufacturer_catalogue') {
+      evidences.push({
+        kind: 'manufacturer_catalogue',
+        label: 'Каталог производителя',
+        detail: item.documentUrl
+          ? `Подтверждённый URL производителя (${extractDisplayHost(item.source)}) и PDF техпаспорт`
+          : `Подтверждённый URL производителя (${extractDisplayHost(item.source)})`,
+        sourceUrl: item.source,
+      });
+    }
+    upsert(item, evidences, 'manual_link');
+  }
+
+  const candidates = [...byCanonical.values()];
+  const byId = new Map<string, UnifiedCandidate>();
+  for (const candidate of candidates) {
+    byId.set(candidate.result.id, candidate);
+  }
+
+  return { candidates, byId, unlinkedLocalMatches };
+}
+
 

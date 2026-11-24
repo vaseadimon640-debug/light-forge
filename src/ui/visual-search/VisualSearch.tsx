@@ -18,7 +18,6 @@ import {
   localSearchResponseSchema,
 } from '@/visual-search/local-contract';
 import {
-  AlertIcon,
   BookmarkIcon,
   BrandMarkIcon,
   ChatIcon,
@@ -54,9 +53,9 @@ import {
   isDefaultResultFilters,
   isFullCrop,
   isTransformDefault,
+  mergeAllSearchCandidates,
   mergeSearchResults,
   readResultSpecifications,
-  resolveLocalMatchResult,
   rotateCropRect,
   rotateDegrees,
   shouldUseOriginalForLocalSearch,
@@ -69,6 +68,7 @@ import {
   type RotationDeg,
   type SearchPhotoItem,
 } from './helpers';
+import { GeminiInsightsPanel } from './GeminiInsightsPanel';
 import { createWorkingPhotoCopy } from './image-processing';
 import { HISTORY_KEY, SAVED_KEY, readHistory, readSavedLinks } from './local-history';
 import { LocalMatchesSection } from './LocalMatchesSection';
@@ -127,6 +127,9 @@ export function VisualSearch() {
 
   // Real API results, local photo matches, imported links, library & history
   const [lastResponse, setLastResponse] = useState<SearchResponse | undefined>();
+  const [photoTraits, setPhotoTraits] = useState<{ photoId: string; traits: string[] } | null>(
+    null,
+  );
   const [localResponse, setLocalResponse] = useState<LocalSearchResponse | undefined>();
   const [localUsedCrop, setLocalUsedCrop] = useState(false);
   const [lastSearchContext, setLastSearchContext] = useState<SearchRunContext | undefined>();
@@ -394,10 +397,23 @@ export function VisualSearch() {
     [savedUrls],
   );
 
-  const results = useMemo(
-    () => mergeSearchResults(lastResponse?.results ?? [], imported),
-    [lastResponse, imported],
+  const unified = useMemo(
+    () =>
+      mergeAllSearchCandidates({
+        apiResults: lastResponse?.results ?? [],
+        localMatches: localResponse?.matches ?? [],
+        importedResults: imported,
+        geminiTraits: lastResponse?.traits ?? [],
+      }),
+    [lastResponse, localResponse, imported],
   );
+
+  const results = useMemo(
+    () => unified.candidates.map(candidate => candidate.result),
+    [unified],
+  );
+  const candidatesById = unified.byId;
+  const unlinkedLocalMatches = unified.unlinkedLocalMatches;
 
   const filterOptions = useMemo(() => extractFilterOptions(results), [results]);
 
@@ -408,41 +424,8 @@ export function VisualSearch() {
 
   const sections = useMemo(() => groupSearchResults(filteredResults), [filteredResults]);
 
-  const localMatchesByResultId = useMemo(() => {
-    const map = new Map<string, LocalSearchResponse['matches'][number]>();
-    for (const match of localResponse?.matches ?? []) {
-      const linked = resolveLocalMatchResult(match);
-      if (linked && !map.has(linked.id)) {
-        map.set(linked.id, match);
-      }
-    }
-    return map;
-  }, [localResponse]);
-
-  const localLinkedResults = useMemo(() => {
-    const map = new Map<string, SearchResult>();
-    for (const match of localResponse?.matches ?? []) {
-      const linked = resolveLocalMatchResult(match);
-      if (linked && !map.has(linked.id)) {
-        map.set(linked.id, linked);
-      }
-    }
-    return [...map.values()];
-  }, [localResponse]);
-
-  const allComparableResults = useMemo(
-    () => mergeSearchResults(results, localLinkedResults),
-    [results, localLinkedResults],
-  );
-
-  const documentationItems = useMemo(
-    () =>
-      mergeSearchResults(
-        sections.documentation,
-        groupSearchResults(localLinkedResults).documentation,
-      ),
-    [sections.documentation, localLinkedResults],
-  );
+  const allComparableResults = results;
+  const documentationItems = sections.documentation;
 
   const comparedItems = useMemo(
     () =>
@@ -477,10 +460,15 @@ export function VisualSearch() {
     return () => observer.disconnect();
   }, [comparedItems.length, detailResult]);
 
-  const hasLocalMatches = (localResponse?.matches.length ?? 0) > 0;
   const hasResultsArea = Boolean(lastResponse || localResponse || imported.length > 0);
-  const hasAnyMatches = results.length > 0 || hasLocalMatches;
+  const hasAnyMatches = results.length > 0 || unlinkedLocalMatches.length > 0;
   const geminiWarningText = formatGeminiWarning(lastResponse?.warning);
+  const geminiLimitReached = Boolean(gemini && gemini.requestsToday >= gemini.appDailyLimit);
+  const activeGeminiTraits = useMemo(() => {
+    if (lastResponse?.traits && lastResponse.traits.length > 0) return lastResponse.traits;
+    if (primaryPhoto && photoTraits?.photoId === primaryPhoto.id) return photoTraits.traits;
+    return [];
+  }, [lastResponse?.traits, photoTraits, primaryPhoto]);
 
   const isPhotoContextStale = Boolean(
     lastSearchContext &&
@@ -503,6 +491,9 @@ export function VisualSearch() {
     const remaining = photos.filter(item => item.id !== id);
     setPhotos(remaining);
     setAllowGemini(false);
+    if (photoTraits?.photoId === id) {
+      setPhotoTraits(null);
+    }
 
     if (remaining.length === 0) {
       searchAbortRef.current?.abort();
@@ -511,6 +502,7 @@ export function VisualSearch() {
       setActivePhotoId(null);
       setLocalResponse(undefined);
       setLocalUsedCrop(false);
+      setPhotoTraits(null);
       return;
     }
 
@@ -614,7 +606,9 @@ export function VisualSearch() {
       let usedWorkingCopy = false;
 
       try {
-        const shouldRunGemini = Boolean(gemini?.enabled && photoConsent && searchPhoto);
+        const shouldRunGemini = Boolean(
+          gemini?.enabled && !geminiLimitReached && photoConsent && searchPhoto,
+        );
 
         // Local photo search runs offline without external AI APIs or Gemini consent.
         const localTask = (async () => {
@@ -722,6 +716,9 @@ export function VisualSearch() {
 
           setLastResponse(data);
           setGemini(data.gemini);
+          if (data.traits.length > 0 && searchPhoto) {
+            setPhotoTraits({ photoId: searchPhoto.id, traits: data.traits });
+          }
         })();
 
         const [mainOutcome, localOutcome] = await Promise.allSettled([mainTask, localTask]);
@@ -781,7 +778,16 @@ export function VisualSearch() {
         }
       }
     },
-    [gemini?.enabled, localCapabilities?.available, mode, photos.length, primaryPhoto, query, showNotice],
+    [
+      gemini?.enabled,
+      geminiLimitReached,
+      localCapabilities?.available,
+      mode,
+      photos.length,
+      primaryPhoto,
+      query,
+      showNotice,
+    ],
   );
 
   function handleSearchSubmit(event: FormEvent) {
@@ -796,6 +802,22 @@ export function VisualSearch() {
     setMode('deep');
     void runSearch(similarQuery, 'deep', false, false);
     showNotice(`Ищем похожие модели по запросу «${similarQuery}»…`);
+  }
+
+  function handleRunSuggestedQuery(suggested: string) {
+    const clean = suggested.trim();
+    if (!clean) return;
+    closeDetailView();
+    setQuery(clean);
+    setMode('deep');
+    void runSearch(clean, 'deep', false, false);
+    showNotice(`Поиск по предложенному запросу «${clean}»…`);
+  }
+
+  function focusQueryInput() {
+    const input = document.getElementById('vs-query-input') as HTMLInputElement | null;
+    input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    input?.focus();
   }
 
   function handleSearchByTitle(title: string) {
@@ -977,7 +999,8 @@ export function VisualSearch() {
             isCompared={compareIds.includes(detailResult.id)}
             isSaved={isResultSaved(detailResult)}
             creatingRfq={creatingRfqId === detailResult.id}
-            localMatch={localMatchesByResultId.get(detailResult.id)}
+            localMatch={candidatesById.get(detailResult.id)?.localMatch}
+            evidences={candidatesById.get(detailResult.id)?.evidences}
             photos={photos}
             photoUrls={photoUrls}
             primaryPhotoId={primaryPhoto?.id ?? null}
@@ -1059,17 +1082,35 @@ export function VisualSearch() {
                           </span>
                         </div>
                       </div>
-                      <span
-                        className={`lf-badge ${
-                          localCapabilities?.available
-                            ? 'lf-badge--documentation'
-                            : 'lf-badge--unknown'
-                        }`}
-                      >
-                        {localCapabilities?.available
-                          ? `Локальный индекс: ${localCapabilities.referenceCount}`
-                          : 'Без локального индекса'}
-                      </span>
+                      <div className="vs-primary-link-badges">
+                        <span
+                          className={`lf-badge ${
+                            localCapabilities?.available
+                              ? 'lf-badge--documentation'
+                              : 'lf-badge--unknown'
+                          }`}
+                        >
+                          {localCapabilities?.available
+                            ? `Локальный индекс: ${localCapabilities.referenceCount}`
+                            : 'Без локального индекса'}
+                        </span>
+                        {gemini && (
+                          <span
+                            data-testid="vs-gemini-status-badge"
+                            className={`lf-badge ${
+                              gemini.enabled && !geminiLimitReached
+                                ? 'lf-badge--accent'
+                                : 'lf-badge--unknown'
+                            }`}
+                          >
+                            {gemini.enabled
+                              ? geminiLimitReached
+                                ? `Лимит Gemini: ${gemini.requestsToday}/${gemini.appDailyLimit}`
+                                : `Gemini Free: ${gemini.requestsToday}/${gemini.appDailyLimit}`
+                              : 'Gemini: выключен'}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -1129,15 +1170,20 @@ export function VisualSearch() {
 
                   {/* Explicit user consent shown ONLY when server Gemini Free Tier is enabled */}
                   {gemini?.enabled && primaryPhoto && (
-                    <label className="vs-consent-inline">
+                    <label
+                      className={`vs-consent-inline ${geminiLimitReached ? 'vs-consent-inline--disabled' : ''}`}
+                    >
                       <input
                         id="vs-gemini-consent"
                         type="checkbox"
-                        checked={allowGemini}
+                        checked={!geminiLimitReached && allowGemini}
+                        disabled={geminiLimitReached}
                         onChange={event => setAllowGemini(event.target.checked)}
                       />
                       <span>
-                        Отправить рабочую копию основного фото ({primaryPhoto.file.name}) в Gemini для этого поиска (оригинал остаётся на вашем устройстве)
+                        {geminiLimitReached
+                          ? `Дневной лимит приложения Gemini (${gemini.requestsToday}/${gemini.appDailyLimit}) исчерпан. Доступны поиск по названию, локальный каталог и ручной Google Lens.`
+                          : `Отправить оптимизированную копию основного фото (${primaryPhoto.file.name}) в Gemini Free Tier для этого поиска (${gemini.requestsToday}/${gemini.appDailyLimit}). Оригинал остаётся на вашем устройстве, платные модели выключены.`}
                       </span>
                     </label>
                   )}
@@ -1221,6 +1267,15 @@ export function VisualSearch() {
                               ? ` · ${lastSearchContext.photoTransform}`
                               : ''}
                           </span>
+                          {localResponse && localResponse.matches.length > 0 && (
+                            <span
+                              className="lf-badge lf-badge--documentation"
+                              data-testid="vs-local-merged-summary"
+                            >
+                              Локальный каталог ({localUsedCrop ? 'рабочая копия' : 'оригинал'}):{' '}
+                              {localResponse.matches.length} · объединено без дубликатов
+                            </span>
+                          )}
                           {isPhotoContextStale && (
                             <button
                               type="button"
@@ -1255,50 +1310,48 @@ export function VisualSearch() {
                   )}
                 </div>
 
-                {lastResponse && lastResponse.traits.length > 0 && (
-                  <div className="vs-traits-bar">
-                    <span className="vs-traits-label">Видимые признаки по фото:</span>
-                    <div className="vs-traits-list">
-                      {lastResponse.traits.map(trait => (
-                        <span key={trait} className="lf-badge lf-badge--accent">
-                          {trait}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {/* Gemini visual traits, suggested queries, and quota/fallback controls */}
+                <GeminiInsightsPanel
+                  traits={activeGeminiTraits}
+                  query={lastSearchContext?.query ?? query}
+                  photoName={lastSearchContext?.photoName}
+                  warningText={geminiWarningText}
+                  localIndexAvailable={Boolean(localCapabilities?.available)}
+                  onRunSuggestedQuery={handleRunSuggestedQuery}
+                  onFocusQueryInput={focusQueryInput}
+                  onOpenLens={() => setLensOpen(true)}
+                  onOpenChatGpt={() => {
+                    setChatGptFocused(undefined);
+                    setChatGptOpen(true);
+                  }}
+                />
 
-                {geminiWarningText && (
-                  <div className="vs-warning-banner" role="status">
-                    <AlertIcon size={16} />
-                    <span>{geminiWarningText}</span>
-                  </div>
-                )}
-
-                {localResponse && (
-                  <LocalMatchesSection
-                    matches={localResponse.matches}
-                    usedCrop={localUsedCrop}
-                    selectedVariants={selectedVariants}
-                    compareIds={compareIds}
-                    creatingRfqId={creatingRfqId}
-                    isResultSaved={isResultSaved}
-                    onSelectSku={(resultId, sku) =>
-                      setSelectedVariants(prev => ({ ...prev, [resultId]: sku }))
-                    }
-                    onOpenDetail={openDetailView}
-                    onToggleCompare={handleToggleCompare}
-                    onFindSimilar={handleFindSimilar}
-                    onSearchByTitle={handleSearchByTitle}
-                    onToggleSave={handleToggleSave}
-                    onReviewChatGpt={target => {
-                      setChatGptFocused(target);
-                      setChatGptOpen(true);
-                    }}
-                    onCreateRfq={target => void handleCreateRfq(target)}
-                    onOpenLens={() => setLensOpen(true)}
-                  />
-                )}
+                {/* Unlinked local-only matches (or 0 local matches notice); URL-linked local matches are deduplicated into unified results below */}
+                {localResponse &&
+                  (unlinkedLocalMatches.length > 0 || localResponse.matches.length === 0) && (
+                    <LocalMatchesSection
+                      matches={unlinkedLocalMatches}
+                      usedCrop={localUsedCrop}
+                      selectedVariants={selectedVariants}
+                      compareIds={compareIds}
+                      creatingRfqId={creatingRfqId}
+                      isResultSaved={isResultSaved}
+                      onSelectSku={(resultId, sku) =>
+                        setSelectedVariants(prev => ({ ...prev, [resultId]: sku }))
+                      }
+                      onOpenDetail={openDetailView}
+                      onToggleCompare={handleToggleCompare}
+                      onFindSimilar={handleFindSimilar}
+                      onSearchByTitle={handleSearchByTitle}
+                      onToggleSave={handleToggleSave}
+                      onReviewChatGpt={target => {
+                        setChatGptFocused(target);
+                        setChatGptOpen(true);
+                      }}
+                      onCreateRfq={target => void handleCreateRfq(target)}
+                      onOpenLens={() => setLensOpen(true)}
+                    />
+                  )}
 
                 {/* Empty / No results state */}
                 {!hasAnyMatches ? (
@@ -1387,6 +1440,7 @@ export function VisualSearch() {
                         ) : viewMode === 'table' ? (
                           <ResultsTableView
                             results={filteredResults}
+                            candidatesById={candidatesById}
                             selectedVariants={selectedVariants}
                             compareIds={compareIds}
                             creatingRfqId={creatingRfqId}
@@ -1427,6 +1481,8 @@ export function VisualSearch() {
                                       <ResultCard
                                         key={item.id}
                                         result={item}
+                                        localMatch={candidatesById.get(item.id)?.localMatch}
+                                        evidences={candidatesById.get(item.id)?.evidences}
                                         selectedSku={selectedVariants[item.id] ?? ''}
                                         isCompared={compareIds.includes(item.id)}
                                         isSaved={isResultSaved(item)}
@@ -1514,6 +1570,8 @@ export function VisualSearch() {
                                         <ResultCard
                                           key={item.id}
                                           result={item}
+                                          localMatch={candidatesById.get(item.id)?.localMatch}
+                                          evidences={candidatesById.get(item.id)?.evidences}
                                           selectedSku={selectedVariants[item.id] ?? ''}
                                           isCompared={compareIds.includes(item.id)}
                                           isSaved={isResultSaved(item)}
@@ -1591,6 +1649,8 @@ export function VisualSearch() {
                                       <ResultCard
                                         key={item.id}
                                         result={item}
+                                        localMatch={candidatesById.get(item.id)?.localMatch}
+                                        evidences={candidatesById.get(item.id)?.evidences}
                                         selectedSku={selectedVariants[item.id] ?? ''}
                                         isCompared={compareIds.includes(item.id)}
                                         isSaved={isResultSaved(item)}
@@ -1990,6 +2050,7 @@ export function VisualSearch() {
         query={query}
         results={allComparableResults}
         focusedResult={chatGptFocused}
+        traits={activeGeminiTraits}
         onClose={() => setChatGptOpen(false)}
         onAddLinks={handleAddLinks}
         onExportPrompt={text => {

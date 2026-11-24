@@ -19,6 +19,7 @@ import {
 import {
   buildUnconfirmedChecklist,
   categoryMeta,
+  evidenceBadgeTone,
   extractDisplayHost,
   filterLightingConfigurations,
   formatLightDirection,
@@ -27,6 +28,7 @@ import {
   localMatchMeta,
   productKindLabel,
   readResultSpecifications,
+  type CandidateEvidence,
   type LocalSearchMatch,
   type SearchPhotoItem,
 } from './helpers';
@@ -40,6 +42,7 @@ type ProductDetailViewProps = {
   isSaved: boolean;
   creatingRfq: boolean;
   localMatch?: LocalSearchMatch;
+  evidences?: CandidateEvidence[];
   photos: SearchPhotoItem[];
   photoUrls: Record<string, string>;
   primaryPhotoId: string | null;
@@ -59,6 +62,7 @@ export function ProductDetailView({
   isSaved,
   creatingRfq,
   localMatch,
+  evidences = [],
   photos,
   photoUrls,
   primaryPhotoId,
@@ -226,6 +230,25 @@ export function ProductDetailView({
               <span className="vs-local-strip-copy">
                 Локальный индекс: {localMatch.title} (<span className="mono">{localMatch.id}</span>) · {localMeta.explanation}
               </span>
+            </div>
+          )}
+
+          {evidences.length > 0 && (
+            <div className="vs-detail-panel vs-detail-evidence-panel">
+              <div className="vs-detail-panel-head">
+                <span className="vs-pane-eyebrow">Доказательства и источники ({evidences.length})</span>
+                <span className="vs-pill vs-pill--est">Original not verified</span>
+              </div>
+              <ul className="vs-evidence-list">
+                {evidences.map(ev => (
+                  <li key={`${ev.kind}-${ev.detail}`} className="vs-evidence-item">
+                    <span className={`vs-pill vs-pill--${evidenceBadgeTone(ev.kind)}`}>
+                      {ev.label}
+                    </span>
+                    <span className="vs-evidence-detail">{ev.detail}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 

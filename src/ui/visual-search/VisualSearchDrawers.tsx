@@ -416,6 +416,7 @@ type ChatGptDrawerProps = {
   query: string;
   results: SearchResult[];
   focusedResult?: SearchResult;
+  traits?: string[];
   onClose: () => void;
   onAddLinks: (links: ReviewLink[]) => void;
   onExportPrompt: (text: string) => void;
@@ -426,6 +427,7 @@ export function ChatGptDrawer({
   query,
   results,
   focusedResult,
+  traits,
   onClose,
   onAddLinks,
   onExportPrompt,
@@ -434,7 +436,7 @@ export function ChatGptDrawer({
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
 
-  const promptText = buildReviewPrompt(query, results, focusedResult);
+  const promptText = buildReviewPrompt(query, results, focusedResult, traits);
 
   async function handleCopy() {
     try {

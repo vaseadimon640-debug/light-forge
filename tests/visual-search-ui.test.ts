@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { catalogueSearch, importReviewLinks, projectFromSearch } from '../src/visual-search/catalogue.ts';
 import { maxLocalPhotoBytes } from '../src/visual-search/local-contract.ts';
 import {
+  buildGeminiInsights,
   buildReviewPrompt,
   buildRfqSnapshotFromSearch,
   buildSimilarQuery,
@@ -10,6 +11,7 @@ import {
   clampCrop,
   clampZoom,
   DEFAULT_RESULT_FILTERS,
+  evidenceBadgeTone,
   extractComparisonSpec,
   extractFilterOptions,
   filterAndSortResults,
@@ -19,6 +21,7 @@ import {
   isFullCrop,
   isTransformDefault,
   localMatchMeta,
+  mergeAllSearchCandidates,
   mergeSearchResults,
   normalizeClipboardFile,
   parseChatGptJsonInput,
@@ -385,6 +388,141 @@ test('buildUnconfirmedChecklist preserves Original not verified and explicitly l
   const myringList = buildUnconfirmedChecklist(myring);
   assert.ok(myringList.some(line => /Габаритные размеры/.test(line)));
 });
+
+test('buildGeminiInsights categorizes shape, suspension, and visible details and suggests deduplicated queries without inventing brands', () => {
+  const insights = buildGeminiInsights(
+    [
+      'brass ring pendant',
+      'leather strap suspension',
+      'warm LED strip',
+      'satin metallic finish',
+      'brass ring pendant',
+    ],
+    'Emmemobili',
+  );
+
+  assert.deepEqual(insights.shape, ['brass ring pendant']);
+  assert.deepEqual(insights.suspension, ['leather strap suspension']);
+  assert.deepEqual(insights.details, ['warm LED strip', 'satin metallic finish']);
+  assert.ok(insights.suggestedQueries.length >= 3);
+  assert.ok(
+    insights.suggestedQueries.some(
+      q => q.label === 'Форма и подвес' && /brass ring pendant/.test(q.query) && /leather strap/.test(q.query),
+    ),
+  );
+  assert.ok(
+    insights.suggestedQueries.some(
+      q => q.label === 'Ваш запрос + признаки' && /^Emmemobili\b/.test(q.query),
+    ),
+  );
+  // Empty input produces no fabricated traits or queries
+  const empty = buildGeminiInsights([]);
+  assert.deepEqual(empty, { shape: [], suspension: [], details: [], suggestedQueries: [] });
+});
+
+test('mergeAllSearchCandidates deduplicates catalogue, Gemini, local index, and manual Lens sources with evidence while preserving Original not verified', () => {
+  const [mylineSimilarity] = catalogueSearch('ring brass leather', 'standard');
+  assert.equal(mylineSimilarity.id, 'emmemobili-myline');
+  assert.equal(mylineSimilarity.category, 'visual_alternative');
+  assert.equal(mylineSimilarity.evidence, 'catalogue_similarity');
+
+  // 1) Photo-only evidence (Gemini visual traits + local same_file) WITHOUT official manufacturer URL/text match
+  // MUST NOT upgrade category to verified_original and MUST stay Original not verified
+  const photoOnly = mergeAllSearchCandidates({
+    apiResults: [mylineSimilarity],
+    localMatches: [
+      {
+        id: 'myline-photo-ref',
+        title: 'Emmemobili MYLINE',
+        source: 'https://www.emmemobili.it/prodotti/illuminazione/myline',
+        match: 'same_file',
+      },
+      {
+        id: 'studio-unlinked',
+        title: 'Unlinked Studio Sample',
+        match: 'similar_image',
+      },
+    ],
+    geminiTraits: ['brass ring pendant', 'leather strap suspension'],
+  });
+
+  assert.equal(photoOnly.candidates.length, 1);
+  assert.equal(photoOnly.unlinkedLocalMatches.length, 1);
+  assert.equal(photoOnly.unlinkedLocalMatches[0].id, 'studio-unlinked');
+
+  const photoOnlyMyline = photoOnly.candidates[0];
+  assert.equal(photoOnlyMyline.result.id, 'emmemobili-myline');
+  assert.equal(photoOnlyMyline.result.category, 'visual_alternative');
+  assert.equal(photoOnlyMyline.originalVerified, false);
+  assert.equal(photoOnlyMyline.localMatch?.match, 'same_file');
+  assert.deepEqual(
+    photoOnlyMyline.evidences.map(ev => ev.kind),
+    ['gemini_visual_traits', 'local_same_file'],
+  );
+
+  // 2) Adding an official manufacturer URL from manual Google Lens import deduplicates into the SAME single candidate,
+  // preserves all corroborating evidences, and upgrades category to verified_original ONLY because official catalogue proof exists
+  const manualImports = importReviewLinks([
+    {
+      url: 'https://www.emmemobili.it/en/prodotti/illuminazione/myline?utm_source=lens',
+      title: 'MYLINE Official',
+    },
+    {
+      url: 'https://showroom.example.invalid/ring-lamp',
+      title: 'Showroom Listing',
+    },
+  ]);
+
+  const withProof = mergeAllSearchCandidates({
+    apiResults: [mylineSimilarity],
+    localMatches: [
+      {
+        id: 'myline-photo-ref',
+        title: 'Emmemobili MYLINE',
+        source: 'https://www.emmemobili.it/prodotti/illuminazione/myline',
+        match: 'same_file',
+      },
+    ],
+    importedResults: manualImports,
+    geminiTraits: ['brass ring pendant', 'leather strap suspension'],
+  });
+
+  assert.equal(withProof.candidates.length, 2);
+  const mylineUnified = withProof.byId.get('emmemobili-myline');
+  assert.ok(mylineUnified);
+  assert.equal(mylineUnified.result.category, 'verified_original');
+  assert.equal(mylineUnified.result.evidence, 'manufacturer_catalogue');
+  assert.equal(mylineUnified.originalVerified, false);
+  assert.equal(mylineUnified.localMatch?.match, 'same_file');
+  assert.ok(mylineUnified.evidences.some(ev => ev.kind === 'gemini_visual_traits'));
+  assert.ok(mylineUnified.evidences.some(ev => ev.kind === 'local_same_file'));
+  assert.ok(mylineUnified.evidences.some(ev => ev.kind === 'manual_lens_link'));
+  assert.ok(mylineUnified.evidences.some(ev => ev.kind === 'manufacturer_catalogue'));
+
+  const showroom = withProof.candidates.find(c => c.result.category === 'unverified');
+  assert.ok(showroom);
+  assert.equal(showroom.originalVerified, false);
+  assert.equal(showroom.evidences[0].kind, 'manual_lens_link');
+
+  // Evidence badge tones distinguish verified catalogue / exact file from estimates and manual links
+  assert.equal(evidenceBadgeTone('manufacturer_catalogue'), 'doc');
+  assert.equal(evidenceBadgeTone('local_same_file'), 'doc');
+  assert.equal(evidenceBadgeTone('gemini_visual_traits'), 'est');
+  assert.equal(evidenceBadgeTone('manual_lens_link'), 'accent');
+});
+
+test('buildReviewPrompt includes Gemini visible traits as unverified estimates when present', () => {
+  const [myline] = catalogueSearch('Emmemobili MYLINE', 'standard');
+  const prompt = buildReviewPrompt(
+    '',
+    [myline],
+    myline,
+    ['brass ring pendant', 'leather strap suspension'],
+  );
+  assert.match(prompt, /Original not verified/);
+  assert.match(prompt, /Видимые признаки по фото \(оценка Gemini, не подтверждает бренд\): brass ring pendant, leather strap suspension/);
+});
+
 
 
 

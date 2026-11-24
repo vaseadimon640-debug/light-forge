@@ -14,11 +14,13 @@ import {
 } from '../icons';
 import {
   categoryMeta,
+  evidenceBadgeTone,
   extractDisplayHost,
   filterLightingConfigurations,
   formatLightDirection,
   localMatchMeta,
   productKindLabel,
+  type CandidateEvidence,
   type LocalSearchMatch,
 } from './helpers';
 import { LuminaireVisualPlate } from './LuminaireVisualPlate';
@@ -31,6 +33,7 @@ type ResultCardProps = {
   creatingRfq: boolean;
   featured?: boolean;
   localMatch?: LocalSearchMatch;
+  evidences?: CandidateEvidence[];
   onSelectSku: (sku: string) => void;
   onOpenDetail?: (result: SearchResult) => void;
   onToggleCompare: (result: SearchResult) => void;
@@ -48,6 +51,7 @@ export function ResultCard({
   creatingRfq,
   featured = false,
   localMatch,
+  evidences = [],
   onSelectSku,
   onOpenDetail,
   onToggleCompare,
@@ -80,6 +84,20 @@ export function ResultCard({
             <span className="vs-local-strip-copy">
               {localMatch.title} · <span className="mono">{localMatch.id}</span>
             </span>
+          </div>
+        )}
+
+        {evidences.length > 0 && (
+          <div className="vs-evidence-strip" aria-label="Доказательства и источники совпадения">
+            {evidences.map(ev => (
+              <span
+                key={`${ev.kind}-${ev.detail}`}
+                className={`vs-pill vs-pill--${evidenceBadgeTone(ev.kind)}`}
+                title={ev.detail}
+              >
+                {ev.label}
+              </span>
+            ))}
           </div>
         )}
 
