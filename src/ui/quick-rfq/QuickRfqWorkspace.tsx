@@ -21,6 +21,7 @@ import {
   SparkIcon,
 } from '../icons';
 import { ComponentEditor } from './ComponentEditor';
+import { ConfiguratorSteps, type ConfiguratorStep } from './ConfiguratorSteps';
 import {
   addComponentToProject,
   addPhotosToSnapshot,
@@ -74,14 +75,17 @@ function createInitialSnapshot(): ProjectSnapshot {
 }
 
 type QuickRfqWorkspaceProps = {
+  guided?: boolean;
   /** Photo-analysis API provider (defaults to LIGHT FORGE /api/photo-analysis via @/photo-analysis/client). */
   photoAnalysisProvider?: PhotoAnalysisProvider | null;
 };
 
 export function QuickRfqWorkspace({
   photoAnalysisProvider = defaultPhotoAnalysisProvider,
+  guided = false,
 }: QuickRfqWorkspaceProps = {}) {
-  const [snapshot, setSnapshot] = useState<ProjectSnapshot>(() => createInitialSnapshot());
+  const [snapshot, setSnapshot] = useState<ProjectSnapshot>(() => guided ? { project: newProject(), originals: {} } : createInitialSnapshot());
+  const [step, setStep] = useState<ConfiguratorStep>('source');
   const [linkedComposition, setLinkedComposition] = useState<Composition | undefined>(undefined);
   const [activeComponentId, setActiveComponentId] = useState<string>(() => snapshot.project.components[0].id);
   const [unit, setUnit] = useState<Unit>('mm');
@@ -670,6 +674,7 @@ export function QuickRfqWorkspace({
     const next = { project: newProject(), originals: {} };
     setLastSavedFingerprint(null);
     setMobilePane('form');
+    setStep('source');
     loadSnapshotIntoWorkspace(next, 'Создан новый проект');
   }, [loadSnapshotIntoWorkspace]);
 
@@ -765,8 +770,13 @@ export function QuickRfqWorkspace({
   const isSavedCurrent = lastSavedFingerprint === projectFingerprint;
   const hasUnsavedChanges = projectFingerprint !== (lastSavedFingerprint ?? initialFingerprint.current);
 
+  function selectStep(next: ConfiguratorStep) {
+    setStep(next);
+    setMobilePane(next === 'review' ? 'preview' : 'form');
+  }
+
   return (
-    <div className="lf-shell">
+    <div className="lf-shell" data-configurator={guided || undefined}>
       {/* Top Studio Bar */}
       <header className="lf-topbar lf-studio-topbar">
         <div className="lf-brand-group">
@@ -841,7 +851,7 @@ export function QuickRfqWorkspace({
 
       <section className="lf-studio-intro" aria-labelledby="lf-workbench-title">
         <div className="lf-studio-banner lf-studio-banner--rfq">
-          <h1 id="lf-workbench-title">Запрос на изготовление</h1>
+          <h1 id="lf-workbench-title">{guided ? 'Конфигуратор светильника' : 'Запрос на изготовление'}</h1>
           <p>Фотографии, размеры и материалы светильника в одном PDF для фабрики.</p>
           <div className="lf-studio-banner-actions">
             <button
@@ -869,8 +879,10 @@ export function QuickRfqWorkspace({
         </div>
       </section>
 
+      {guided && <ConfiguratorSteps step={step} onSelect={selectStep} />}
+
       {/* Mobile Workbench Switcher */}
-      <nav className="lf-mobile-switch" aria-label="Переключение редактора и предпросмотра">
+      <nav className="lf-mobile-switch" hidden={guided} aria-label="Переключение редактора и предпросмотра">
         <div className="lf-segment">
           <button
             id="lf-mobile-form-tab"
@@ -894,8 +906,9 @@ export function QuickRfqWorkspace({
       </nav>
 
       {/* Main Split Workbench */}
-      <main className="lf-main" data-mobile-pane={mobilePane}>
+      <main className="lf-main" data-mobile-pane={mobilePane} data-config-step={guided ? step : undefined}>
         <div className={`lf-editor-col${mobilePane === 'preview' ? ' lf-pane--hidden-mobile' : ''}`}>
+          <div className="lf-config-fields" hidden={guided && step !== 'source'}>
           {/* Step 1: Photos */}
           <PhotoManager
             snapshot={snapshot}
@@ -976,6 +989,8 @@ export function QuickRfqWorkspace({
             onAcceptAllEmpty={handleAcceptAllEmpty}
           />
 
+          </div>
+          <div className="lf-config-fields" hidden={guided && step !== 'product'}>
           {/* Step 3: Order & Core Project Parameters */}
           <section className="lf-card" aria-labelledby="project-heading">
             <div className="lf-card-header">
@@ -1117,6 +1132,8 @@ export function QuickRfqWorkspace({
             </div>
           </section>
 
+          </div>
+          <div className="lf-config-fields" hidden={guided && step !== 'components'}>
           {/* Step 3: Components (Dimensions, Light, Materials) */}
           <ComponentEditor
             project={snapshot.project}
@@ -1141,6 +1158,8 @@ export function QuickRfqWorkspace({
             issues={combinedIssues}
           />
 
+          </div>
+          <div className="lf-config-fields" hidden={guided && step !== 'mounting'}>
           {/* Step 4: Mounting levels & placements (Progressive disclosure) */}
           <MountingSection
             project={snapshot.project}
@@ -1157,6 +1176,8 @@ export function QuickRfqWorkspace({
             issues={combinedIssues}
           />
 
+          </div>
+          <div className="lf-config-fields" hidden={guided && step !== 'notes'}>
           {/* Step 6: Notes & Quick CTA Footer */}
           <section className="lf-card" aria-labelledby="notes-heading">
             <button
@@ -1199,6 +1220,8 @@ export function QuickRfqWorkspace({
             )}
           </section>
 
+          </div>
+          <div className="lf-config-fields" hidden={guided && step !== 'review'}>
           {/* Bottom Form Action Bar */}
           <div
             className="lf-card"
@@ -1228,6 +1251,7 @@ export function QuickRfqWorkspace({
               <FilePdfIcon size={15} />
               Создать запрос PDF ({language.toUpperCase()})
             </button>
+          </div>
           </div>
         </div>
 

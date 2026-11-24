@@ -216,3 +216,56 @@
   .atelier-library[data-view='list'] .atelier-library-card { grid-template-columns: 70px minmax(0, 1fr); }
   .atelier-library[data-view='list'] .atelier-project-cover { height: 100%; }
 }
+
+.lf-config-steps {
+  width: min(100%, var(--container-max));
+  margin: 16px auto 0;
+  padding-inline: 20px;
+}
+.lf-config-steps ol {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lf-config-steps nav button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  min-height: 42px;
+  padding: 6px 8px;
+  border: 1px solid var(--atelier-edge);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--atelier-ink);
+  text-align: left;
+  line-height: 1.25;
+}
+.lf-config-steps nav button[aria-current] { background: var(--atelier-selected); border-color: var(--atelier-focus); }
+.lf-config-steps nav button span { font-variant-numeric: tabular-nums; color: var(--atelier-muted); }
+.lf-config-step-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--atelier-edge);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.lf-config-step-summary :is(h2,p) { margin: 0; }
+.lf-config-step-summary h2 { font-size: 17px; }
+.lf-config-step-summary p { color: var(--atelier-muted); }
+.lf-config-step-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.lf-config-fields { display: contents; }
+.lf-config-fields[hidden], .lf-mobile-switch[hidden] { display: none; }
+@media (max-width: 780px) {
+  .lf-config-steps { padding-inline: 14px; }
+  .lf-config-steps ol { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lf-config-step-summary { align-items: flex-start; flex-direction: column; }
+}

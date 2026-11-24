@@ -1,4 +1,4 @@
-import { FilePdfIcon, LayersIcon, SearchIcon } from '@/ui/icons';
+import { EditIcon, FilePdfIcon, LayersIcon, SearchIcon } from '@/ui/icons';
 import { RecentWork } from "@/ui/projects/RecentWork";
 
 export default function Dashboard() {
@@ -10,6 +10,7 @@ export default function Dashboard() {
     </header>
     <section className="atelier-actions" aria-label="Основные действия">
       <a href="/search"><SearchIcon size={24} /><strong>Поиск по фото</strong><span>Найти модель и похожие светильники</span></a>
+      <a href="/configure"><EditIcon size={24} /><strong>Настроить светильник</strong><span>Пройти от референса до спецификации</span></a>
       <a href="/"><FilePdfIcon size={24} /><strong>Запрос фабрике</strong><span>Подготовить спецификацию и PDF</span></a>
       <a href="/geometry"><LayersIcon size={24} /><strong>3D Studio</strong><span>Проверить форму, уровни и подвесы</span></a>
     </section>
