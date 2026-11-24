@@ -7,6 +7,13 @@ import { compositionSchema } from '../src/geometry/schema.ts';
 import { resolvedCompositionSchema } from '../src/geometry/result.ts';
 import { detailedRfqRequestSchema } from '../src/rfq/detailed.ts';
 import { quickRfqRequestSchema, quickRfqTextSchema } from '../src/rfq/quick.ts';
+import {
+  geminiDrawingAnalysisSchema,
+  geminiErrorResponseSchema,
+  geminiPhotoAnalysisSchema,
+  geminiStatusResponseSchema,
+  geminiTestResponseSchema,
+} from '../src/ai/gemini-contract.ts';
 import { photoAnalysisCapabilitiesSchema, photoAnalysisInputSchema, photoAnalysisResponseSchema } from '../src/photo-analysis/contract.ts';
 
 function jsonSchema(schema: z.ZodType) {
@@ -220,6 +227,83 @@ const specification = {
         },
       },
     },
+    '/api/ai/gemini/status': {
+      get: {
+        operationId: 'getGeminiAiStatus',
+        description: 'Return server-side Gemini AI configuration status, selected Free-Tier Flash model, and last connection test result without exposing secrets.',
+        responses: {
+          200: response('Gemini AI status', { $ref: '#/components/schemas/GeminiStatusResponse' }),
+        },
+      },
+    },
+    '/api/ai/gemini/test': {
+      post: {
+        operationId: 'testGeminiAiConnection',
+        description: 'Verify GEMINI_API_KEY, list account Flash models, and test live structured JSON output.',
+        responses: {
+          200: response('Gemini connection test result', { $ref: '#/components/schemas/GeminiTestResponse' }),
+          403: response('Cross-site request rejected', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+        },
+      },
+    },
+    '/api/ai/gemini/analyze-photo': {
+      post: {
+        operationId: 'analyzePhotoWithGemini',
+        description: 'Analyze one luminaire photograph using Gemini Flash structured JSON output. Original image is never overwritten; estimates remain explicitly labelled.',
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                required: ['file'],
+                properties: { file: { type: 'string', format: 'binary' } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: response('Structured luminaire visual analysis', { $ref: '#/components/schemas/GeminiPhotoAnalysis' }),
+          400: response('Missing file field', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          401: response('Invalid API key', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          403: response('Cross-site request rejected', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          404: response('Model unavailable', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          422: response('Invalid image or blocked paid model', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          429: response('Quota or daily app limit reached', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          502: response('Invalid response from Gemini', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          503: response('API key not configured or network error', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+        },
+      },
+    },
+    '/api/ai/gemini/analyze-drawing': {
+      post: {
+        operationId: 'analyzeDrawingWithGemini',
+        description: 'Read one technical drawing image or PDF specification with Gemini Flash, normalizing all extracted lengths to millimetres (mm) with Confirmed/Estimated/Unknown provenance.',
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                required: ['file'],
+                properties: { file: { type: 'string', format: 'binary' } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: response('Structured technical drawing / PDF specification in mm', { $ref: '#/components/schemas/GeminiDrawingAnalysis' }),
+          400: response('Missing file field', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          401: response('Invalid API key', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          403: response('Cross-site request rejected', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          404: response('Model unavailable', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          422: response('Invalid PDF/drawing file or blocked paid model', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          429: response('Quota or daily app limit reached', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          502: response('Invalid response from Gemini', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+          503: response('API key not configured or network error', { $ref: '#/components/schemas/GeminiErrorResponse' }),
+        },
+      },
+    },
     '/api/health': {
       get: {
         operationId: 'health',
@@ -247,6 +331,11 @@ const specification = {
       PhotoAnalysisInput: jsonSchema(photoAnalysisInputSchema),
       PhotoAnalysisCapabilities: jsonSchema(photoAnalysisCapabilitiesSchema),
       PhotoAnalysisResponse: jsonSchema(photoAnalysisResponseSchema),
+      GeminiStatusResponse: jsonSchema(geminiStatusResponseSchema),
+      GeminiTestResponse: jsonSchema(geminiTestResponseSchema),
+      GeminiPhotoAnalysis: jsonSchema(geminiPhotoAnalysisSchema),
+      GeminiDrawingAnalysis: jsonSchema(geminiDrawingAnalysisSchema),
+      GeminiErrorResponse: jsonSchema(geminiErrorResponseSchema),
       PhotoAnalysisError: {
         ...error,
         properties: {

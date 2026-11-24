@@ -438,6 +438,183 @@ paths:
           description: Invalid photo
         "503":
           description: Local index absent or invalid
+  /api/ai/gemini/status:
+    get:
+      operationId: getGeminiAiStatus
+      description: Return server-side Gemini AI configuration status, selected
+        Free-Tier Flash model, and last connection test result without exposing
+        secrets.
+      responses:
+        "200":
+          description: Gemini AI status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiStatusResponse"
+  /api/ai/gemini/test:
+    post:
+      operationId: testGeminiAiConnection
+      description: Verify GEMINI_API_KEY, list account Flash models, and test live
+        structured JSON output.
+      responses:
+        "200":
+          description: Gemini connection test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiTestResponse"
+        "403":
+          description: Cross-site request rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+  /api/ai/gemini/analyze-photo:
+    post:
+      operationId: analyzePhotoWithGemini
+      description: Analyze one luminaire photograph using Gemini Flash structured JSON
+        output. Original image is never overwritten; estimates remain explicitly
+        labelled.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Structured luminaire visual analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiPhotoAnalysis"
+        "400":
+          description: Missing file field
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "401":
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "403":
+          description: Cross-site request rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "404":
+          description: Model unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "422":
+          description: Invalid image or blocked paid model
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "429":
+          description: Quota or daily app limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "502":
+          description: Invalid response from Gemini
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "503":
+          description: API key not configured or network error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+  /api/ai/gemini/analyze-drawing:
+    post:
+      operationId: analyzeDrawingWithGemini
+      description: Read one technical drawing image or PDF specification with Gemini
+        Flash, normalizing all extracted lengths to millimetres (mm) with
+        Confirmed/Estimated/Unknown provenance.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Structured technical drawing / PDF specification in mm
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiDrawingAnalysis"
+        "400":
+          description: Missing file field
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "401":
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "403":
+          description: Cross-site request rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "404":
+          description: Model unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "422":
+          description: Invalid PDF/drawing file or blocked paid model
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "429":
+          description: Quota or daily app limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "502":
+          description: Invalid response from Gemini
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
+        "503":
+          description: API key not configured or network error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiErrorResponse"
   /api/health:
     get:
       operationId: health
@@ -6982,6 +7159,1170 @@ components:
             - mode
             - suggestions
           additionalProperties: false
+    GeminiStatusResponse:
+      type: object
+      properties:
+        apiVersion:
+          type: number
+          const: 1
+        configured:
+          type: boolean
+        connected:
+          type: boolean
+        selectedModel:
+          type:
+            - string
+            - "null"
+        configuredModel:
+          type:
+            - string
+            - "null"
+        allowedModels:
+          type: array
+          items:
+            type: string
+        availableFlashModels:
+          type: array
+          items:
+            type: string
+        modelAvailable:
+          type:
+            - boolean
+            - "null"
+        freeTierOnly:
+          type: boolean
+          const: true
+        paidAutoSwitchDisabled:
+          type: boolean
+          const: true
+        requestsToday:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        dailyLimit:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        lastTest:
+          anyOf:
+            - type: object
+              properties:
+                at:
+                  type: string
+                  format: date-time
+                  pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                ok:
+                  type: boolean
+                latencyMs:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                model:
+                  type:
+                    - string
+                    - "null"
+                code:
+                  type: string
+                  enum:
+                    - missing_api_key
+                    - invalid_api_key
+                    - model_unavailable
+                    - paid_model_blocked
+                    - quota_exceeded
+                    - daily_limit_reached
+                    - network_error
+                    - timeout
+                    - busy
+                    - invalid_input
+                    - invalid_response
+                message:
+                  type: string
+                  maxLength: 600
+              required:
+                - at
+                - ok
+                - latencyMs
+                - model
+                - message
+              additionalProperties: false
+            - type: "null"
+      required:
+        - apiVersion
+        - configured
+        - connected
+        - selectedModel
+        - configuredModel
+        - allowedModels
+        - availableFlashModels
+        - modelAvailable
+        - freeTierOnly
+        - paidAutoSwitchDisabled
+        - requestsToday
+        - dailyLimit
+        - lastTest
+      additionalProperties: false
+    GeminiTestResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        code:
+          type: string
+          enum:
+            - missing_api_key
+            - invalid_api_key
+            - model_unavailable
+            - paid_model_blocked
+            - quota_exceeded
+            - daily_limit_reached
+            - network_error
+            - timeout
+            - busy
+            - invalid_input
+            - invalid_response
+        message:
+          type: string
+          maxLength: 600
+        status:
+          type: object
+          properties:
+            apiVersion:
+              type: number
+              const: 1
+            configured:
+              type: boolean
+            connected:
+              type: boolean
+            selectedModel:
+              type:
+                - string
+                - "null"
+            configuredModel:
+              type:
+                - string
+                - "null"
+            allowedModels:
+              type: array
+              items:
+                type: string
+            availableFlashModels:
+              type: array
+              items:
+                type: string
+            modelAvailable:
+              type:
+                - boolean
+                - "null"
+            freeTierOnly:
+              type: boolean
+              const: true
+            paidAutoSwitchDisabled:
+              type: boolean
+              const: true
+            requestsToday:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            dailyLimit:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            lastTest:
+              anyOf:
+                - type: object
+                  properties:
+                    at:
+                      type: string
+                      format: date-time
+                      pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                    ok:
+                      type: boolean
+                    latencyMs:
+                      type: integer
+                      minimum: 0
+                      maximum: 9007199254740991
+                    model:
+                      type:
+                        - string
+                        - "null"
+                    code:
+                      type: string
+                      enum:
+                        - missing_api_key
+                        - invalid_api_key
+                        - model_unavailable
+                        - paid_model_blocked
+                        - quota_exceeded
+                        - daily_limit_reached
+                        - network_error
+                        - timeout
+                        - busy
+                        - invalid_input
+                        - invalid_response
+                    message:
+                      type: string
+                      maxLength: 600
+                  required:
+                    - at
+                    - ok
+                    - latencyMs
+                    - model
+                    - message
+                  additionalProperties: false
+                - type: "null"
+          required:
+            - apiVersion
+            - configured
+            - connected
+            - selectedModel
+            - configuredModel
+            - allowedModels
+            - availableFlashModels
+            - modelAvailable
+            - freeTierOnly
+            - paidAutoSwitchDisabled
+            - requestsToday
+            - dailyLimit
+            - lastTest
+          additionalProperties: false
+      required:
+        - ok
+        - message
+        - status
+      additionalProperties: false
+    GeminiPhotoAnalysis:
+      type: object
+      properties:
+        apiVersion:
+          type: number
+          const: 1
+        model:
+          type: string
+          minLength: 1
+          maxLength: 120
+        analyzedAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+        photoName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        widthPx:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        heightPx:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        fixtureType:
+          type: object
+          properties:
+            value:
+              anyOf:
+                - type: string
+                  enum:
+                    - pendant
+                    - chandelier
+                    - ring
+                    - linear
+                    - arc
+                    - wall
+                    - ceiling
+                    - floor
+                    - table
+                    - custom
+                - type: "null"
+            status:
+              type: string
+              enum:
+                - estimated
+                - unknown
+            note:
+              type: string
+              maxLength: 300
+          required:
+            - value
+            - status
+          additionalProperties: false
+        shape:
+          type: object
+          properties:
+            value:
+              anyOf:
+                - type: string
+                  maxLength: 200
+                - type: "null"
+            status:
+              type: string
+              enum:
+                - estimated
+                - unknown
+          required:
+            - value
+            - status
+          additionalProperties: false
+        elementCount:
+          type: object
+          properties:
+            value:
+              anyOf:
+                - type: integer
+                  minimum: 1
+                  maximum: 500
+                - type: "null"
+            status:
+              type: string
+              enum:
+                - estimated
+                - unknown
+            note:
+              type: string
+              maxLength: 240
+          required:
+            - value
+            - status
+          additionalProperties: false
+        primaryColors:
+          maxItems: 8
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+        suspectedMaterial:
+          type: object
+          properties:
+            key:
+              anyOf:
+                - type: string
+                  enum:
+                    - solidBrass
+                    - genuineLeather
+                    - stainlessSteel
+                    - aluminium
+                    - copper
+                    - steel
+                    - artificialLeather
+                    - glass
+                    - crystal
+                    - acrylic
+                    - polycarbonate
+                    - textile
+                    - wood
+                    - stone
+                    - ceramic
+                    - custom
+                - type: "null"
+            label:
+              anyOf:
+                - type: string
+                  maxLength: 160
+                - type: "null"
+            status:
+              type: string
+              enum:
+                - estimated
+                - unknown
+            uncertaintyReason:
+              type: string
+              maxLength: 320
+          required:
+            - key
+            - label
+            - status
+          additionalProperties: false
+        suspectedFinish:
+          type: object
+          properties:
+            key:
+              anyOf:
+                - type: string
+                  enum:
+                    - naturalSatinBrass
+                    - brushedBrass
+                    - polishedBrass
+                    - antiqueBrass
+                    - burnishedBrass
+                    - brushedBronze
+                    - polishedChrome
+                    - satinNickel
+                    - matteBlack
+                    - glossyBlack
+                    - white
+                    - custom
+                - type: "null"
+            label:
+              anyOf:
+                - type: string
+                  maxLength: 160
+                - type: "null"
+            status:
+              type: string
+              enum:
+                - estimated
+                - unknown
+            uncertaintyReason:
+              type: string
+              maxLength: 320
+          required:
+            - key
+            - label
+            - status
+          additionalProperties: false
+        suspensionType:
+          type: object
+          properties:
+            value:
+              anyOf:
+                - type: string
+                  maxLength: 160
+                - type: "null"
+            status:
+              type: string
+              enum:
+                - estimated
+                - unknown
+          required:
+            - value
+            - status
+          additionalProperties: false
+        lightDirection:
+          type: object
+          properties:
+            value:
+              anyOf:
+                - type: string
+                  enum:
+                    - up
+                    - down
+                    - both
+                    - diffuse
+                    - adjustable
+                - type: "null"
+            status:
+              type: string
+              enum:
+                - estimated
+                - unknown
+          required:
+            - value
+            - status
+          additionalProperties: false
+        structuralDetails:
+          maxItems: 12
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+        dimensionsCannotBeVerifiedFromPhoto:
+          type: boolean
+          const: true
+        unverifiableNotice:
+          type: string
+          maxLength: 500
+        sourceDisclaimer:
+          type: string
+          maxLength: 500
+        summary:
+          type: string
+          maxLength: 1000
+        warnings:
+          maxItems: 10
+          type: array
+          items:
+            type: string
+            maxLength: 300
+      required:
+        - apiVersion
+        - model
+        - analyzedAt
+        - photoName
+        - widthPx
+        - heightPx
+        - fixtureType
+        - shape
+        - elementCount
+        - primaryColors
+        - suspectedMaterial
+        - suspectedFinish
+        - suspensionType
+        - lightDirection
+        - structuralDetails
+        - dimensionsCannotBeVerifiedFromPhoto
+        - unverifiableNotice
+        - sourceDisclaimer
+        - summary
+        - warnings
+      additionalProperties: false
+    GeminiDrawingAnalysis:
+      type: object
+      properties:
+        apiVersion:
+          type: number
+          const: 1
+        model:
+          type: string
+          minLength: 1
+          maxLength: 120
+        analyzedAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        mimeType:
+          type: string
+          enum:
+            - application/pdf
+            - image/jpeg
+            - image/png
+            - image/webp
+        fileSizeBytes:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        unitStandard:
+          type: string
+          const: mm
+        dimensionsMm:
+          type: object
+          properties:
+            width:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1000000
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            height:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1000000
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            depth:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1000000
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            diameter:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1000000
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            innerDiameter:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1000000
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            profileHeight:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1000000
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            profileThickness:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1000000
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+          required:
+            - width
+            - height
+            - depth
+            - diameter
+            - innerDiameter
+            - profileHeight
+            - profileThickness
+          additionalProperties: false
+        electrical:
+          type: object
+          properties:
+            wattageW:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 100000
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            lumensLm:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 10000000
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            cctK:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 1000
+                      maximum: 20000
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            cri:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 100
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            voltage:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: string
+                      maxLength: 120
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 160
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            ipRating:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: string
+                      enum:
+                        - IP20
+                        - IP44
+                        - IP54
+                        - IP65
+                        - IP67
+                    - type: "null"
+                rawValue:
+                  type: string
+                  maxLength: 40
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            dimming:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: string
+                      enum:
+                        - none
+                        - DALI
+                        - DALI-2
+                        - TRIAC
+                        - 0–10 V
+                        - Casambi
+                        - KNX
+                    - type: "null"
+                rawValue:
+                  type: string
+                  maxLength: 80
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+          required:
+            - wattageW
+            - lumensLm
+            - cctK
+            - cri
+            - voltage
+            - ipRating
+            - dimming
+          additionalProperties: false
+        materials:
+          maxItems: 16
+          type: array
+          items:
+            type: object
+            properties:
+              part:
+                type: string
+                minLength: 1
+                maxLength: 120
+              materialKey:
+                anyOf:
+                  - type: string
+                    enum:
+                      - solidBrass
+                      - genuineLeather
+                      - stainlessSteel
+                      - aluminium
+                      - copper
+                      - steel
+                      - artificialLeather
+                      - glass
+                      - crystal
+                      - acrylic
+                      - polycarbonate
+                      - textile
+                      - wood
+                      - stone
+                      - ceramic
+                      - custom
+                  - type: "null"
+              label:
+                type: string
+                minLength: 1
+                maxLength: 160
+              status:
+                type: string
+                enum:
+                  - confirmed
+                  - estimated
+                  - unknown
+              source:
+                type: string
+                enum:
+                  - documentation
+                  - estimated
+                  - unknown
+            required:
+              - part
+              - materialKey
+              - label
+              - status
+              - source
+            additionalProperties: false
+        finishes:
+          maxItems: 16
+          type: array
+          items:
+            type: object
+            properties:
+              part:
+                type: string
+                minLength: 1
+                maxLength: 120
+              finishKey:
+                anyOf:
+                  - type: string
+                    enum:
+                      - naturalSatinBrass
+                      - brushedBrass
+                      - polishedBrass
+                      - antiqueBrass
+                      - burnishedBrass
+                      - brushedBronze
+                      - polishedChrome
+                      - satinNickel
+                      - matteBlack
+                      - glossyBlack
+                      - white
+                      - custom
+                  - type: "null"
+              label:
+                type: string
+                minLength: 1
+                maxLength: 160
+              color:
+                type: string
+                maxLength: 120
+              status:
+                type: string
+                enum:
+                  - confirmed
+                  - estimated
+                  - unknown
+              source:
+                type: string
+                enum:
+                  - documentation
+                  - estimated
+                  - unknown
+            required:
+              - part
+              - finishKey
+              - label
+              - status
+              - source
+            additionalProperties: false
+        documentNotes:
+          maxItems: 12
+          type: array
+          items:
+            type: string
+            maxLength: 300
+        warnings:
+          maxItems: 12
+          type: array
+          items:
+            type: string
+            maxLength: 300
+        summary:
+          type: string
+          maxLength: 1000
+      required:
+        - apiVersion
+        - model
+        - analyzedAt
+        - fileName
+        - mimeType
+        - fileSizeBytes
+        - unitStandard
+        - dimensionsMm
+        - electrical
+        - materials
+        - finishes
+        - documentNotes
+        - warnings
+        - summary
+      additionalProperties: false
+    GeminiErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          enum:
+            - missing_api_key
+            - invalid_api_key
+            - model_unavailable
+            - paid_model_blocked
+            - quota_exceeded
+            - daily_limit_reached
+            - network_error
+            - timeout
+            - busy
+            - invalid_input
+            - invalid_response
+        message:
+          type: string
+          maxLength: 600
+      required:
+        - error
+        - message
+      additionalProperties: false
     PhotoAnalysisError:
       type: object
       required: *a2
