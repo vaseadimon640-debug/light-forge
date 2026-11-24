@@ -61,8 +61,13 @@ export const geminiStatusResponseSchema = z.strictObject({
   modelAvailable: z.boolean().nullable(),
   freeTierOnly: z.literal(true),
   paidAutoSwitchDisabled: z.literal(true),
+  costLimitUsd: z.literal(0),
+  searchProviderLabel: z.string().max(120),
   requestsToday: z.number().int().min(0),
   dailyLimit: z.number().int().positive(),
+  requestsThisMonth: z.number().int().min(0),
+  monthlyLimit: z.number().int().positive(),
+  cacheEntries: z.number().int().min(0),
   lastTest: geminiLastTestSchema.nullable(),
 });
 export type GeminiStatusResponse = z.infer<typeof geminiStatusResponseSchema>;
@@ -76,7 +81,7 @@ export const geminiTestResponseSchema = z.strictObject({
 export type GeminiTestResponse = z.infer<typeof geminiTestResponseSchema>;
 
 // =============================================================================
-// Photo Analysis Contract (all 9 required luminaire visual traits)
+// Photo Analysis Contract (all 14 luminaire visual traits + uncertainty & cache)
 // =============================================================================
 
 export const certaintyStatusSchema = z.enum(['confirmed', 'estimated', 'unknown']);
@@ -88,9 +93,20 @@ export const geminiPhotoAnalysisSchema = z.strictObject({
   apiVersion: z.literal(1),
   model: z.string().min(1).max(120),
   analyzedAt: z.iso.datetime(),
+  cached: z.boolean(),
+  deepAnalysis: z.boolean(),
   photoName: z.string().min(1).max(255),
   widthPx: z.number().int().positive(),
   heightPx: z.number().int().positive(),
+  possibleBrand: z.strictObject({
+    value: z.string().max(140).nullable(),
+    status: photoCertaintySchema,
+    note: z.string().max(260).optional(),
+  }),
+  possibleCollection: z.strictObject({
+    value: z.string().max(140).nullable(),
+    status: photoCertaintySchema,
+  }),
   fixtureType: z.strictObject({
     value: z.enum(productTypeKeys).nullable(),
     status: photoCertaintySchema,
@@ -118,8 +134,17 @@ export const geminiPhotoAnalysisSchema = z.strictObject({
     status: photoCertaintySchema,
     uncertaintyReason: z.string().max(320).optional(),
   }),
+  hasDiffuser: z.strictObject({
+    value: z.boolean().nullable(),
+    description: z.string().max(200).optional(),
+    status: photoCertaintySchema,
+  }),
   suspensionType: z.strictObject({
     value: z.string().max(160).nullable(),
+    status: photoCertaintySchema,
+  }),
+  ceilingMountVisible: z.strictObject({
+    value: z.string().max(180).nullable(),
     status: photoCertaintySchema,
   }),
   lightDirection: z.strictObject({
@@ -127,6 +152,8 @@ export const geminiPhotoAnalysisSchema = z.strictObject({
     status: photoCertaintySchema,
   }),
   structuralDetails: z.array(z.string().trim().min(1).max(200)).max(12),
+  geometricFeatures: z.array(z.string().trim().min(1).max(200)).max(12),
+  missingInformation: z.array(z.string().trim().min(1).max(240)).max(16),
   dimensionsCannotBeVerifiedFromPhoto: z.literal(true),
   unverifiableNotice: z.string().max(500),
   sourceDisclaimer: z.string().max(500),
@@ -136,8 +163,20 @@ export const geminiPhotoAnalysisSchema = z.strictObject({
 export type GeminiPhotoAnalysis = z.infer<typeof geminiPhotoAnalysisSchema>;
 
 // =============================================================================
-// Technical Drawing & PDF Extraction Contract (dimensions strictly in mm)
+// Technical Drawing & PDF Extraction Contract (all lengths in mm + provenance)
 // =============================================================================
+
+function makeProvenanceSchema() {
+  return z
+    .strictObject({
+      fileName: z.string().max(255),
+      page: z.number().int().min(1).max(500).optional(),
+      snippet: z.string().max(180).optional(),
+      dimensionLabel: z.string().max(120).optional(),
+      confidence: z.enum(['high', 'medium', 'low']),
+    })
+    .optional();
+}
 
 function makeNumericFieldSchema(min = 0, max = 10_000_000) {
   return z.strictObject({
@@ -146,6 +185,7 @@ function makeNumericFieldSchema(min = 0, max = 10_000_000) {
     originalUnit: z.string().max(24).optional(),
     status: certaintyStatusSchema,
     source: z.enum(['documentation', 'estimated', 'unknown']),
+    provenance: makeProvenanceSchema(),
   });
 }
 
@@ -155,6 +195,7 @@ function makeTextFieldSchema(maxLen = 160) {
     originalText: z.string().max(160).optional(),
     status: certaintyStatusSchema,
     source: z.enum(['documentation', 'estimated', 'unknown']),
+    provenance: makeProvenanceSchema(),
   });
 }
 
@@ -162,10 +203,16 @@ export const geminiDrawingAnalysisSchema = z.strictObject({
   apiVersion: z.literal(1),
   model: z.string().min(1).max(120),
   analyzedAt: z.iso.datetime(),
+  cached: z.boolean(),
+  deepAnalysis: z.boolean(),
   fileName: z.string().min(1).max(255),
   mimeType: z.enum(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']),
   fileSizeBytes: z.number().int().positive(),
   unitStandard: z.literal('mm'),
+  identity: z.strictObject({
+    modelName: makeTextFieldSchema(160),
+    sku: makeTextFieldSchema(80),
+  }),
   dimensionsMm: z.strictObject({
     width: makeNumericFieldSchema(0, 1_000_000),
     height: makeNumericFieldSchema(0, 1_000_000),
@@ -174,6 +221,14 @@ export const geminiDrawingAnalysisSchema = z.strictObject({
     innerDiameter: makeNumericFieldSchema(0, 1_000_000),
     profileHeight: makeNumericFieldSchema(0, 1_000_000),
     profileThickness: makeNumericFieldSchema(0, 1_000_000),
+    radius: makeNumericFieldSchema(0, 1_000_000),
+    suspensionDrop: makeNumericFieldSchema(0, 1_000_000),
+  }),
+  geometryMeta: z.strictObject({
+    elementCount: makeNumericFieldSchema(1, 500),
+    mountingPointsCount: makeNumericFieldSchema(1, 200),
+    angles: z.array(z.string().max(80)).max(12),
+    sections: z.array(z.string().max(120)).max(12),
   }),
   electrical: z.strictObject({
     wattageW: makeNumericFieldSchema(0, 100_000),
@@ -186,12 +241,14 @@ export const geminiDrawingAnalysisSchema = z.strictObject({
       rawValue: z.string().max(40).optional(),
       status: certaintyStatusSchema,
       source: z.enum(['documentation', 'estimated', 'unknown']),
+      provenance: makeProvenanceSchema(),
     }),
     dimming: z.strictObject({
       value: z.enum(dimmingModes).nullable(),
       rawValue: z.string().max(80).optional(),
       status: certaintyStatusSchema,
       source: z.enum(['documentation', 'estimated', 'unknown']),
+      provenance: makeProvenanceSchema(),
     }),
   }),
   materials: z
@@ -202,6 +259,7 @@ export const geminiDrawingAnalysisSchema = z.strictObject({
         label: z.string().trim().min(1).max(160),
         status: certaintyStatusSchema,
         source: z.enum(['documentation', 'estimated', 'unknown']),
+        provenance: makeProvenanceSchema(),
       }),
     )
     .max(16),
@@ -214,9 +272,20 @@ export const geminiDrawingAnalysisSchema = z.strictObject({
         color: z.string().trim().max(120).optional(),
         status: certaintyStatusSchema,
         source: z.enum(['documentation', 'estimated', 'unknown']),
+        provenance: makeProvenanceSchema(),
       }),
     )
     .max(16),
+  conflicts: z
+    .array(
+      z.strictObject({
+        field: z.string().max(80),
+        values: z.array(z.string().max(80)).min(2).max(6),
+        message: z.string().max(320),
+      }),
+    )
+    .max(12),
+  missingInformation: z.array(z.string().trim().min(1).max(240)).max(16),
   documentNotes: z.array(z.string().max(300)).max(12),
   warnings: z.array(z.string().max(300)).max(12),
   summary: z.string().max(1000),

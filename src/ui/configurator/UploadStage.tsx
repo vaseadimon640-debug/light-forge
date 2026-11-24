@@ -13,6 +13,9 @@ type UploadStageProps = {
   uploadErrors: readonly string[];
   searchOriginals: boolean;
   onToggleSearchOriginals: (next: boolean) => void;
+  requireExternalAiConsent: boolean;
+  externalAiConsentGranted: boolean;
+  onToggleExternalAiConsent: (next: boolean) => void;
   analyzing: boolean;
   analysisStageText: string | null;
   analysisError: { code: string; message: string } | null;
@@ -32,6 +35,9 @@ export function UploadStage({
   uploadErrors,
   searchOriginals,
   onToggleSearchOriginals,
+  requireExternalAiConsent,
+  externalAiConsentGranted,
+  onToggleExternalAiConsent,
   analyzing,
   analysisStageText,
   analysisError,
@@ -266,21 +272,41 @@ export function UploadStage({
       )}
 
       {hasAnyMedia && (
-        <label className="lfw-upload-option">
-          <input
-            id="lfw-search-originals-checkbox"
-            type="checkbox"
-            checked={searchOriginals}
-            onChange={(e) => onToggleSearchOriginals(e.target.checked)}
-          />
-          <span>
-            <strong>Найти оригинал и технические характеристики</strong>
-            <br />
-            <span className="lf-field-hint">
-              Выполняется отдельным поиском по каталогу/источникам (не путается с визуальным анализом Gemini Vision).
+        <div style={{ display: 'grid', gap: 8 }}>
+          <label className="lfw-upload-option">
+            <input
+              id="lfw-search-originals-checkbox"
+              type="checkbox"
+              checked={searchOriginals}
+              onChange={(e) => onToggleSearchOriginals(e.target.checked)}
+            />
+            <span>
+              <strong>Найти оригинал и технические характеристики</strong>
+              <br />
+              <span className="lf-field-hint">
+                Выполняется отдельным поиском по каталогу/источникам (не путается с визуальным анализом Gemini Vision).
+              </span>
             </span>
-          </span>
-        </label>
+          </label>
+
+          {requireExternalAiConsent && (
+            <label className="lfw-upload-option">
+              <input
+                id="lfw-external-ai-consent"
+                type="checkbox"
+                checked={externalAiConsentGranted}
+                onChange={(e) => onToggleExternalAiConsent(e.target.checked)}
+              />
+              <span>
+                <strong>Разрешаю отправку выбранных файлов во внешний Google Gemini API</strong>
+                <br />
+                <span className="lf-field-hint">
+                  Контроль конфиденциальности для коммерческих чертежей (настраивается в AI Settings). Оригиналы остаются в браузере.
+                </span>
+              </span>
+            </label>
+          )}
+        </div>
       )}
 
       {analyzing && analysisStageText && (
@@ -315,7 +341,11 @@ export function UploadStage({
           id="lfw-recognize-btn"
           type="button"
           className="lf-btn lf-btn--primary lfw-cta-primary"
-          disabled={!hasAnyMedia || analyzing}
+          disabled={
+            !hasAnyMedia ||
+            analyzing ||
+            (requireExternalAiConsent && !externalAiConsentGranted)
+          }
           onClick={onRecognizeAndFill}
         >
           {analyzing ? <RefreshIcon size={16} className="lf-spin" /> : <SparkIcon size={16} />}

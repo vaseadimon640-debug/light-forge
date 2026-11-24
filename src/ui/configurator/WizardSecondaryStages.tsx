@@ -1,28 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import type { GeminiDrawingAnalysis, GeminiPhotoAnalysis } from '@/ai/gemini-contract';
 import {
   dimmingModes,
-  dimensions,
   directions,
   finishes,
   ipRatings,
   materials,
-  newComponent,
   productTypes,
-  sources,
   type Component,
-  type DimensionKey,
   type Material,
-  type ProductType,
   type Project,
 } from '@/domain/project';
-import { CheckIcon, ExternalLinkIcon, FilePdfIcon, LayersIcon, PlusIcon, ShieldIcon } from '../icons';
+import { CheckIcon, ExternalLinkIcon, FilePdfIcon, LayersIcon, ShieldIcon } from '../icons';
 import { orderedPhotos } from '../quick-rfq/helpers';
 import type { WizardStepId } from './wizardState';
 
-const productTypeKeys = Object.keys(productTypes) as ProductType[];
 const materialKeys = Object.keys(materials) as Material['material'][];
 const finishKeys = Object.keys(finishes) as NonNullable<Material['finish']>[];
 const directionKeys = Object.keys(directions) as NonNullable<Component['light']['directionId']>[];
@@ -74,227 +67,6 @@ function StageVisualAside({ project, photoUrls, extraNote }: StageVisualAsidePro
         {extraNote && <span className="lf-field-hint">{extraNote}</span>}
       </div>
     </aside>
-  );
-}
-
-// =============================================================================
-// STAGE 2 — AI RESULTS & DIMENSIONS
-// =============================================================================
-
-type DimensionsStageProps = {
-  project: Project;
-  photoUrls: Record<string, string>;
-  aiPhoto: GeminiPhotoAnalysis | null;
-  aiDrawing: GeminiDrawingAnalysis | null;
-  onUpdateProject: (mutator: (p: Project) => Project, touchedKey?: string) => void;
-  onBack: () => void;
-  onNext: () => void;
-};
-
-export function DimensionsStage({
-  project,
-  photoUrls,
-  aiPhoto,
-  aiDrawing,
-  onUpdateProject,
-  onBack,
-  onNext,
-}: DimensionsStageProps) {
-  const [activeCompIdx, setActiveCompIdx] = useState(0);
-  const safeIdx = Math.min(activeCompIdx, Math.max(0, project.components.length - 1));
-  const comp = project.components[safeIdx];
-
-  function updateCompDimension(key: DimensionKey, rawValue: string) {
-    const trimmed = rawValue.trim().replace(',', '.');
-    onUpdateProject((p) => ({
-      ...p,
-      components: p.components.map((item, i) => {
-        if (i !== safeIdx) return item;
-        const nextDims = { ...item.dimensions };
-        if (!trimmed) {
-          delete nextDims[key];
-        } else {
-          const val = Number(trimmed);
-          if (Number.isFinite(val) && val >= 0 && val <= 1_000_000) {
-            nextDims[key] = { value: val, source: 'user' };
-          }
-        }
-        return { ...item, dimensions: nextDims };
-      }),
-    }), `dim:${key}`);
-  }
-
-  const dimFields: DimensionKey[] = [
-    'width',
-    'height',
-    'depth',
-    'outerDiameter',
-    'innerDiameter',
-    'profileHeight',
-    'profileThickness',
-  ];
-
-  return (
-    <section aria-labelledby="lfw-stage2-title">
-      <div className="lfw-stage-head" style={{ marginBottom: 18 }}>
-        <div>
-          <h1 id="lfw-stage2-title">Результаты анализа и размеры</h1>
-          <p>Все размеры хранятся строго в миллиметрах (мм). Неизвестные поля оставляйте пустыми.</p>
-        </div>
-      </div>
-
-      <div className="lfw-split">
-        <StageVisualAside
-          project={project}
-          photoUrls={photoUrls}
-          extraNote={
-            aiPhoto
-              ? `Gemini Vision (${aiPhoto.model}): визуальные наблюдения отмечены как Estimated.`
-              : aiDrawing
-                ? `Чертёж (${aiDrawing.fileName}): размеры переведены в мм.`
-                : undefined
-          }
-        />
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {(aiPhoto || aiDrawing) && (
-            <div className="lfw-panel">
-              <h2>Распознано Gemini AI</h2>
-              {aiPhoto && (
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <div className="lfw-status-row">
-                    <span>Визуальный разбор фото ({aiPhoto.photoName})</span>
-                    <span className="lf-badge lf-badge--estimated">ESTIMATED · {aiPhoto.model}</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 13 }}>{aiPhoto.summary}</p>
-                  <span className="lf-field-hint">{aiPhoto.unverifiableNotice}</span>
-                </div>
-              )}
-              {aiDrawing && (
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <div className="lfw-status-row">
-                    <span>Технический документ ({aiDrawing.fileName})</span>
-                    <span className="lf-badge lf-badge--documentation">CONFIRMED / ESTIMATED · мм</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 13 }}>{aiDrawing.summary}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="lfw-panel">
-            <h2>Модель и конструкция</h2>
-            <div className="lfw-grid-2">
-              <div className="lfw-field">
-                <label htmlFor="lfw-proj-name">Название проекта / модели</label>
-                <input
-                  id="lfw-proj-name"
-                  type="text"
-                  value={project.name}
-                  onChange={(e) => onUpdateProject((p) => ({ ...p, name: e.target.value }), 'name')}
-                />
-              </div>
-              <div className="lfw-field">
-                <label htmlFor="lfw-proj-code">Артикул / код (если известен)</label>
-                <input
-                  id="lfw-proj-code"
-                  type="text"
-                  placeholder="Пусто → на подтверждение"
-                  value={project.code}
-                  onChange={(e) => onUpdateProject((p) => ({ ...p, code: e.target.value }), 'code')}
-                />
-              </div>
-            </div>
-
-            <div className="lfw-grid-2">
-              <div className="lfw-field">
-                <label htmlFor="lfw-proj-kind">Тип светильника</label>
-                <select
-                  id="lfw-proj-kind"
-                  value={project.kind}
-                  onChange={(e) =>
-                    onUpdateProject((p) => ({ ...p, kind: e.target.value as ProductType }), 'kind')
-                  }
-                >
-                  {productTypeKeys.map((k) => (
-                    <option key={k} value={k}>
-                      {productTypes[k][0]} ({productTypes[k][1]})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="lfw-field">
-                <label>Части / элементы конструкции ({project.components.length})</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {project.components.map((c, idx) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className={`lf-btn lf-btn--sm${idx === safeIdx ? ' lf-btn--primary' : ' lf-btn--subtle'}`}
-                      onClick={() => setActiveCompIdx(idx)}
-                    >
-                      {c.name} ×{c.quantity}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="lf-btn lf-btn--sm lf-btn--subtle"
-                    onClick={() => {
-                      const nextComp = newComponent(project.kind);
-                      nextComp.name = `Элемент ${project.components.length + 1}`;
-                      onUpdateProject((p) => ({
-                        ...p,
-                        components: [...p.components, nextComp],
-                      }));
-                      setActiveCompIdx(project.components.length);
-                    }}
-                  >
-                    <PlusIcon size={12} /> Часть
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <h2 style={{ marginTop: 4 }}>Габариты элемента «{comp.name}» (в миллиметрах)</h2>
-            <div className="lfw-grid-3">
-              {dimFields.map((key) => {
-                const current = comp.dimensions[key];
-                return (
-                  <div key={key} className="lfw-field">
-                    <label htmlFor={`lfw-dim-${key}`}>
-                      {dimensions[key][0]} (мм)
-                      {current && (
-                        <span style={{ marginLeft: 6, fontWeight: 400, opacity: 0.75 }}>
-                          · {sources[current.source][0]}
-                        </span>
-                      )}
-                    </label>
-                    <input
-                      id={`lfw-dim-${key}`}
-                      type="number"
-                      min={0}
-                      step="1"
-                      placeholder="Unknown"
-                      value={current ? String(current.value) : ''}
-                      onChange={(e) => updateCompDimension(key, e.target.value)}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="lfw-footer-nav">
-            <button type="button" className="lf-btn lf-btn--subtle" onClick={onBack}>
-              ← Назад к загрузке
-            </button>
-            <button id="lfw-confirm-dims-btn" type="button" className="lf-btn lf-btn--primary" onClick={onNext}>
-              <CheckIcon size={15} /> Подтвердить размеры →
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
   );
 }
 

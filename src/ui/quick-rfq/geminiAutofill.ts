@@ -21,6 +21,7 @@ import {
   type ProductType,
   type Project,
 } from '../../domain/project.ts';
+import { loadStudioPreferences } from '../../storage/preferences.ts';
 
 export class GeminiClientError extends Error {
   readonly code: GeminiErrorCode;
@@ -34,19 +35,51 @@ export class GeminiClientError extends Error {
   }
 }
 
+export type GeminiRequestOptions = {
+  signal?: AbortSignal;
+  modelOverride?: string;
+  deepAnalysis?: boolean;
+};
+
+export function formatProvenance(
+  provenance?: {
+    fileName: string;
+    page?: number;
+    snippet?: string;
+    dimensionLabel?: string;
+    confidence: 'high' | 'medium' | 'low';
+  },
+): string | undefined {
+  if (!provenance) return undefined;
+  const parts: string[] = [provenance.fileName];
+  if (provenance.page) parts.push(`стр. ${provenance.page}`);
+  if (provenance.dimensionLabel) parts.push(provenance.dimensionLabel);
+  if (provenance.snippet) parts.push(`«${provenance.snippet}»`);
+  return `Источник: ${parts.join(', ')}`;
+}
+
 export async function requestGeminiPhotoAnalysis(
   file: Blob,
   fileName: string,
-  signal?: AbortSignal,
+  options?: AbortSignal | GeminiRequestOptions,
 ): Promise<GeminiPhotoAnalysis> {
+  const opts: GeminiRequestOptions =
+    options instanceof AbortSignal ? { signal: options } : (options ?? {});
+  const prefs = loadStudioPreferences();
+  const model = opts.modelOverride ?? prefs.preferredGeminiModel;
+  const deep = opts.deepAnalysis ?? prefs.deepAiAnalysisEnabled;
+
   const form = new FormData();
   form.set('file', file, fileName);
+  if (model) form.set('model', model);
+  if (deep) form.set('deepAnalysis', '1');
+
   let res: Response;
   try {
     res = await fetch('/api/ai/gemini/analyze-photo', {
       method: 'POST',
       body: form,
-      signal,
+      signal: opts.signal,
     });
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error;
@@ -93,16 +126,25 @@ export async function requestGeminiPhotoAnalysis(
 
 export async function requestGeminiDrawingAnalysis(
   file: File,
-  signal?: AbortSignal,
+  options?: AbortSignal | GeminiRequestOptions,
 ): Promise<GeminiDrawingAnalysis> {
+  const opts: GeminiRequestOptions =
+    options instanceof AbortSignal ? { signal: options } : (options ?? {});
+  const prefs = loadStudioPreferences();
+  const model = opts.modelOverride ?? prefs.preferredGeminiModel;
+  const deep = opts.deepAnalysis ?? prefs.deepAiAnalysisEnabled;
+
   const form = new FormData();
   form.set('file', file, file.name);
+  if (model) form.set('model', model);
+  if (deep) form.set('deepAnalysis', '1');
+
   let res: Response;
   try {
     res = await fetch('/api/ai/gemini/analyze-drawing', {
       method: 'POST',
       body: form,
-      signal,
+      signal: opts.signal,
     });
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error;
@@ -148,6 +190,8 @@ export async function requestGeminiDrawingAnalysis(
 }
 
 export type GeminiProposalPayload =
+  | { kind: 'projectName'; value: string }
+  | { kind: 'projectCode'; value: string }
   | { kind: 'productKind'; value: ProductType }
   | { kind: 'dimension'; key: DimensionKey; valueMm: number; source: Measurement['source'] }
   | {
@@ -286,8 +330,16 @@ export function buildPhotoProposals(
   if (analysis.elementCount.value !== null) {
     observationParts.push(`Элементов (визуально): ${analysis.elementCount.value}`);
   }
+  if (analysis.hasDiffuser.value !== null) {
+    observationParts.push(
+      `Рассеиватель: ${analysis.hasDiffuser.value ? (analysis.hasDiffuser.description ?? 'виден') : 'не виден'}`,
+    );
+  }
   if (analysis.suspensionType.value) {
     observationParts.push(`Подвес (визуально): ${analysis.suspensionType.value}`);
+  }
+  if (analysis.ceilingMountVisible.value) {
+    observationParts.push(`Крепление: ${analysis.ceilingMountVisible.value}`);
   }
   if (analysis.structuralDetails.length > 0) {
     observationParts.push(`Детали: ${analysis.structuralDetails.slice(0, 4).join('; ')}`);
@@ -317,13 +369,54 @@ export function buildPhotoProposals(
 export function buildDrawingProposals(
   project: Project,
   analysis: GeminiDrawingAnalysis,
+  manualTouchedFields: ReadonlySet<string> = new Set(),
 ): GeminiAutofillProposal[] {
   const comp = primaryComponent(project);
   const proposals: GeminiAutofillProposal[] = [];
 
+  if (analysis.identity.modelName.value && analysis.identity.modelName.status !== 'unknown') {
+    const hasManual =
+      manualTouchedFields.has('name') ||
+      (project.name !== 'Новый светильник' && project.name !== analysis.identity.modelName.value);
+    const source = analysis.identity.modelName.status === 'confirmed' ? 'documentation' : 'estimated';
+    proposals.push({
+      id: 'drawing-model-name',
+      category: 'Идентификация',
+      label: 'Название модели',
+      proposedDisplay: analysis.identity.modelName.value,
+      currentDisplay: project.name,
+      status: analysis.identity.modelName.status,
+      source,
+      hasManualValue: hasManual,
+      defaultChecked: !hasManual,
+      note: formatProvenance(analysis.identity.modelName.provenance),
+      payload: { kind: 'projectName', value: analysis.identity.modelName.value },
+    });
+  }
+
+  if (analysis.identity.sku.value && analysis.identity.sku.status !== 'unknown') {
+    const hasManual =
+      manualTouchedFields.has('code') ||
+      (Boolean(project.code.trim()) && project.code !== analysis.identity.sku.value);
+    const source = analysis.identity.sku.status === 'confirmed' ? 'documentation' : 'estimated';
+    proposals.push({
+      id: 'drawing-sku',
+      category: 'Идентификация',
+      label: 'Артикул / SKU',
+      proposedDisplay: analysis.identity.sku.value,
+      currentDisplay: project.code || 'Не задано',
+      status: analysis.identity.sku.status,
+      source,
+      hasManualValue: hasManual,
+      defaultChecked: !hasManual,
+      note: formatProvenance(analysis.identity.sku.provenance),
+      payload: { kind: 'projectCode', value: analysis.identity.sku.value },
+    });
+  }
+
   const dimMap: Array<{
     key: DimensionKey;
-    field: GeminiDrawingAnalysis['dimensionsMm'][keyof GeminiDrawingAnalysis['dimensionsMm']];
+    field: GeminiDrawingAnalysis['dimensionsMm']['width'];
   }> = [
     { key: 'width', field: analysis.dimensionsMm.width },
     { key: 'height', field: analysis.dimensionsMm.height },
@@ -332,19 +425,21 @@ export function buildDrawingProposals(
     { key: 'innerDiameter', field: analysis.dimensionsMm.innerDiameter },
     { key: 'profileHeight', field: analysis.dimensionsMm.profileHeight },
     { key: 'profileThickness', field: analysis.dimensionsMm.profileThickness },
+    { key: 'radius', field: analysis.dimensionsMm.radius },
   ];
 
   for (const { key, field } of dimMap) {
     if (field.value === null || field.status === 'unknown') continue;
     const existing = comp.dimensions[key];
-    const hasManual = Boolean(existing && existing.source !== 'estimated');
+    const hasManual =
+      manualTouchedFields.has(`dim:${key}`) || Boolean(existing && existing.source !== 'estimated');
     const source: Measurement['source'] = field.status === 'confirmed' ? 'documentation' : 'estimated';
+    const prov = formatProvenance(field.provenance);
     const unitNote =
       field.originalUnit && field.originalUnit.toLowerCase() !== 'mm'
         ? `Переведено из ${field.originalText ?? field.originalUnit}`
-        : field.originalText
-          ? `Из документа: ${field.originalText}`
-          : undefined;
+        : undefined;
+    const note = [unitNote, prov].filter(Boolean).join(' · ') || undefined;
 
     proposals.push({
       id: `drawing-dim-${key}`,
@@ -358,8 +453,31 @@ export function buildDrawingProposals(
       source,
       hasManualValue: hasManual,
       defaultChecked: !hasManual && !existing,
-      note: unitNote,
+      note,
       payload: { kind: 'dimension', key, valueMm: field.value, source },
+    });
+  }
+
+  // Suspension drop is strictly separate from luminaire body height!
+  if (
+    analysis.dimensionsMm.suspensionDrop.value !== null &&
+    analysis.dimensionsMm.suspensionDrop.status !== 'unknown'
+  ) {
+    const drop = analysis.dimensionsMm.suspensionDrop;
+    const source = drop.status === 'confirmed' ? 'documentation' : 'estimated';
+    const line = `[Чертёж · ${drop.status === 'confirmed' ? 'Confirmed' : 'Estimated'}] Монтажная высота подвеса: ${drop.value} мм${drop.provenance?.page ? ` (${drop.provenance.fileName}, стр. ${drop.provenance.page})` : ''}`;
+    proposals.push({
+      id: 'drawing-suspension-drop',
+      category: 'Подвес (отдельно от корпуса)',
+      label: 'Монтажная высота подвеса (мм)',
+      proposedDisplay: `${drop.value} мм`,
+      currentDisplay: project.notes.includes(`${drop.value} мм`) ? 'В примечаниях' : 'Не указано',
+      status: drop.status,
+      source,
+      hasManualValue: false,
+      defaultChecked: !project.notes.includes(line),
+      note: formatProvenance(drop.provenance),
+      payload: { kind: 'noteLine', line },
     });
   }
 
@@ -378,7 +496,9 @@ export function buildDrawingProposals(
   for (const item of lightMetrics) {
     if (item.field.value === null || item.field.status === 'unknown') continue;
     const existing = comp.light[item.metric];
-    const hasManual = Boolean(existing && existing.source !== 'estimated');
+    const hasManual =
+      manualTouchedFields.has(`light:${item.metric}`) ||
+      Boolean(existing && existing.source !== 'estimated');
     const source: Measurement['source'] =
       item.field.status === 'confirmed' ? 'documentation' : 'estimated';
     const val = item.metric === 'cct' ? Math.round(item.field.value) : item.field.value;
@@ -394,7 +514,7 @@ export function buildDrawingProposals(
       source,
       hasManualValue: hasManual,
       defaultChecked: !hasManual && !existing,
-      note: item.field.originalText ? `Из документа: ${item.field.originalText}` : undefined,
+      note: formatProvenance(item.field.provenance),
       payload: { kind: 'lightMetric', metric: item.metric, value: val, source },
     });
   }
@@ -413,6 +533,7 @@ export function buildDrawingProposals(
       source,
       hasManualValue: hasManual,
       defaultChecked: !hasManual && !existing,
+      note: formatProvenance(analysis.electrical.ipRating.provenance),
       payload: { kind: 'ipRating', value: analysis.electrical.ipRating.value },
     });
   }
@@ -431,6 +552,7 @@ export function buildDrawingProposals(
       source,
       hasManualValue: hasManual,
       defaultChecked: !hasManual && !existing,
+      note: formatProvenance(analysis.electrical.dimming.provenance),
       payload: { kind: 'dimming', value: analysis.electrical.dimming.value },
     });
   }
@@ -448,6 +570,7 @@ export function buildDrawingProposals(
       source,
       hasManualValue: false,
       defaultChecked: !project.notes.includes(analysis.electrical.voltage.value),
+      note: formatProvenance(analysis.electrical.voltage.provenance),
       payload: { kind: 'noteLine', line },
     });
   }
@@ -478,6 +601,7 @@ export function buildDrawingProposals(
       source,
       hasManualValue: hasManual,
       defaultChecked: !hasManual,
+      note: formatProvenance(mat.provenance),
       payload: {
         kind: 'material',
         part: mat.part,
@@ -516,6 +640,18 @@ export function applyGeminiProposals(
     if (!selectedIds.has(proposal.id)) continue;
     const { payload } = proposal;
     const target = nextProject.components[0];
+
+    if (payload.kind === 'projectName') {
+      nextProject = { ...nextProject, name: payload.value.slice(0, 120) };
+      appliedCount += 1;
+      continue;
+    }
+
+    if (payload.kind === 'projectCode') {
+      nextProject = { ...nextProject, code: payload.value.slice(0, 80) };
+      appliedCount += 1;
+      continue;
+    }
 
     if (payload.kind === 'productKind') {
       nextProject = { ...nextProject, kind: payload.value };

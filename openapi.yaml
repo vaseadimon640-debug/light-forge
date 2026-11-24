@@ -7195,6 +7195,12 @@ components:
         paidAutoSwitchDisabled:
           type: boolean
           const: true
+        costLimitUsd:
+          type: number
+          const: 0
+        searchProviderLabel:
+          type: string
+          maxLength: 120
         requestsToday:
           type: integer
           minimum: 0
@@ -7202,6 +7208,18 @@ components:
         dailyLimit:
           type: integer
           exclusiveMinimum: 0
+          maximum: 9007199254740991
+        requestsThisMonth:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        monthlyLimit:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        cacheEntries:
+          type: integer
+          minimum: 0
           maximum: 9007199254740991
         lastTest:
           anyOf:
@@ -7257,8 +7275,13 @@ components:
         - modelAvailable
         - freeTierOnly
         - paidAutoSwitchDisabled
+        - costLimitUsd
+        - searchProviderLabel
         - requestsToday
         - dailyLimit
+        - requestsThisMonth
+        - monthlyLimit
+        - cacheEntries
         - lastTest
       additionalProperties: false
     GeminiTestResponse:
@@ -7319,6 +7342,12 @@ components:
             paidAutoSwitchDisabled:
               type: boolean
               const: true
+            costLimitUsd:
+              type: number
+              const: 0
+            searchProviderLabel:
+              type: string
+              maxLength: 120
             requestsToday:
               type: integer
               minimum: 0
@@ -7326,6 +7355,18 @@ components:
             dailyLimit:
               type: integer
               exclusiveMinimum: 0
+              maximum: 9007199254740991
+            requestsThisMonth:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            monthlyLimit:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            cacheEntries:
+              type: integer
+              minimum: 0
               maximum: 9007199254740991
             lastTest:
               anyOf:
@@ -7381,8 +7422,13 @@ components:
             - modelAvailable
             - freeTierOnly
             - paidAutoSwitchDisabled
+            - costLimitUsd
+            - searchProviderLabel
             - requestsToday
             - dailyLimit
+            - requestsThisMonth
+            - monthlyLimit
+            - cacheEntries
             - lastTest
           additionalProperties: false
       required:
@@ -7404,6 +7450,10 @@ components:
           type: string
           format: date-time
           pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+        cached:
+          type: boolean
+        deepAnalysis:
+          type: boolean
         photoName:
           type: string
           minLength: 1
@@ -7416,6 +7466,43 @@ components:
           type: integer
           exclusiveMinimum: 0
           maximum: 9007199254740991
+        possibleBrand:
+          type: object
+          properties:
+            value:
+              anyOf:
+                - type: string
+                  maxLength: 140
+                - type: "null"
+            status:
+              type: string
+              enum:
+                - estimated
+                - unknown
+            note:
+              type: string
+              maxLength: 260
+          required:
+            - value
+            - status
+          additionalProperties: false
+        possibleCollection:
+          type: object
+          properties:
+            value:
+              anyOf:
+                - type: string
+                  maxLength: 140
+                - type: "null"
+            status:
+              type: string
+              enum:
+                - estimated
+                - unknown
+          required:
+            - value
+            - status
+          additionalProperties: false
         fixtureType:
           type: object
           properties:
@@ -7571,6 +7658,25 @@ components:
             - label
             - status
           additionalProperties: false
+        hasDiffuser:
+          type: object
+          properties:
+            value:
+              type:
+                - boolean
+                - "null"
+            description:
+              type: string
+              maxLength: 200
+            status:
+              type: string
+              enum:
+                - estimated
+                - unknown
+          required:
+            - value
+            - status
+          additionalProperties: false
         suspensionType:
           type: object
           properties:
@@ -7578,6 +7684,23 @@ components:
               anyOf:
                 - type: string
                   maxLength: 160
+                - type: "null"
+            status:
+              type: string
+              enum:
+                - estimated
+                - unknown
+          required:
+            - value
+            - status
+          additionalProperties: false
+        ceilingMountVisible:
+          type: object
+          properties:
+            value:
+              anyOf:
+                - type: string
+                  maxLength: 180
                 - type: "null"
             status:
               type: string
@@ -7617,6 +7740,20 @@ components:
             type: string
             minLength: 1
             maxLength: 200
+        geometricFeatures:
+          maxItems: 12
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+        missingInformation:
+          maxItems: 16
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 240
         dimensionsCannotBeVerifiedFromPhoto:
           type: boolean
           const: true
@@ -7639,18 +7776,26 @@ components:
         - apiVersion
         - model
         - analyzedAt
+        - cached
+        - deepAnalysis
         - photoName
         - widthPx
         - heightPx
+        - possibleBrand
+        - possibleCollection
         - fixtureType
         - shape
         - elementCount
         - primaryColors
         - suspectedMaterial
         - suspectedFinish
+        - hasDiffuser
         - suspensionType
+        - ceilingMountVisible
         - lightDirection
         - structuralDetails
+        - geometricFeatures
+        - missingInformation
         - dimensionsCannotBeVerifiedFromPhoto
         - unverifiableNotice
         - sourceDisclaimer
@@ -7671,6 +7816,10 @@ components:
           type: string
           format: date-time
           pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+        cached:
+          type: boolean
+        deepAnalysis:
+          type: boolean
         fileName:
           type: string
           minLength: 1
@@ -7689,6 +7838,121 @@ components:
         unitStandard:
           type: string
           const: mm
+        identity:
+          type: object
+          properties:
+            modelName:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: string
+                      maxLength: 160
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 160
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            sku:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: string
+                      maxLength: 80
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 160
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+          required:
+            - modelName
+            - sku
+          additionalProperties: false
         dimensionsMm:
           type: object
           properties:
@@ -7719,6 +7983,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -7751,6 +8041,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -7783,6 +8099,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -7815,6 +8157,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -7847,6 +8215,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -7879,6 +8273,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -7911,6 +8331,148 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            radius:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1000000
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            suspensionDrop:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1000000
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -7924,6 +8486,145 @@ components:
             - innerDiameter
             - profileHeight
             - profileThickness
+            - radius
+            - suspensionDrop
+          additionalProperties: false
+        geometryMeta:
+          type: object
+          properties:
+            elementCount:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 1
+                      maximum: 500
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            mountingPointsCount:
+              type: object
+              properties:
+                value:
+                  anyOf:
+                    - type: number
+                      minimum: 1
+                      maximum: 200
+                    - type: "null"
+                originalText:
+                  type: string
+                  maxLength: 120
+                originalUnit:
+                  type: string
+                  maxLength: 24
+                status:
+                  type: string
+                  enum:
+                    - confirmed
+                    - estimated
+                    - unknown
+                source:
+                  type: string
+                  enum:
+                    - documentation
+                    - estimated
+                    - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
+              required:
+                - value
+                - status
+                - source
+              additionalProperties: false
+            angles:
+              maxItems: 12
+              type: array
+              items:
+                type: string
+                maxLength: 80
+            sections:
+              maxItems: 12
+              type: array
+              items:
+                type: string
+                maxLength: 120
+          required:
+            - elementCount
+            - mountingPointsCount
+            - angles
+            - sections
           additionalProperties: false
         electrical:
           type: object
@@ -7955,6 +8656,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -7987,6 +8714,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -8019,6 +8772,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -8051,6 +8830,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -8079,6 +8884,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -8112,6 +8943,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -8147,6 +9004,32 @@ components:
                     - documentation
                     - estimated
                     - unknown
+                provenance:
+                  type: object
+                  properties:
+                    fileName:
+                      type: string
+                      maxLength: 255
+                    page:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    snippet:
+                      type: string
+                      maxLength: 180
+                    dimensionLabel:
+                      type: string
+                      maxLength: 120
+                    confidence:
+                      type: string
+                      enum:
+                        - high
+                        - medium
+                        - low
+                  required:
+                    - fileName
+                    - confidence
+                  additionalProperties: false
               required:
                 - value
                 - status
@@ -8208,6 +9091,32 @@ components:
                   - documentation
                   - estimated
                   - unknown
+              provenance:
+                type: object
+                properties:
+                  fileName:
+                    type: string
+                    maxLength: 255
+                  page:
+                    type: integer
+                    minimum: 1
+                    maximum: 500
+                  snippet:
+                    type: string
+                    maxLength: 180
+                  dimensionLabel:
+                    type: string
+                    maxLength: 120
+                  confidence:
+                    type: string
+                    enum:
+                      - high
+                      - medium
+                      - low
+                required:
+                  - fileName
+                  - confidence
+                additionalProperties: false
             required:
               - part
               - materialKey
@@ -8261,6 +9170,32 @@ components:
                   - documentation
                   - estimated
                   - unknown
+              provenance:
+                type: object
+                properties:
+                  fileName:
+                    type: string
+                    maxLength: 255
+                  page:
+                    type: integer
+                    minimum: 1
+                    maximum: 500
+                  snippet:
+                    type: string
+                    maxLength: 180
+                  dimensionLabel:
+                    type: string
+                    maxLength: 120
+                  confidence:
+                    type: string
+                    enum:
+                      - high
+                      - medium
+                      - low
+                required:
+                  - fileName
+                  - confidence
+                additionalProperties: false
             required:
               - part
               - finishKey
@@ -8268,6 +9203,37 @@ components:
               - status
               - source
             additionalProperties: false
+        conflicts:
+          maxItems: 12
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                maxLength: 80
+              values:
+                minItems: 2
+                maxItems: 6
+                type: array
+                items:
+                  type: string
+                  maxLength: 80
+              message:
+                type: string
+                maxLength: 320
+            required:
+              - field
+              - values
+              - message
+            additionalProperties: false
+        missingInformation:
+          maxItems: 16
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 240
         documentNotes:
           maxItems: 12
           type: array
@@ -8287,14 +9253,20 @@ components:
         - apiVersion
         - model
         - analyzedAt
+        - cached
+        - deepAnalysis
         - fileName
         - mimeType
         - fileSizeBytes
         - unitStandard
+        - identity
         - dimensionsMm
+        - geometryMeta
         - electrical
         - materials
         - finishes
+        - conflicts
+        - missingInformation
         - documentNotes
         - warnings
         - summary
