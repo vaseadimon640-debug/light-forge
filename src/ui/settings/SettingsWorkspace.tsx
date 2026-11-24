@@ -26,6 +26,7 @@ import {
   type QuoteCurrency,
 } from '@/storage/suppliers';
 import { themeKey } from '@/ui/StudioNavigation';
+import { GeminiAiPanel } from './GeminiAiPanel';
 import {
   factoryStatusMeta,
   fetchProviderStatuses,
@@ -598,6 +599,8 @@ export function SettingsWorkspace() {
               </div>
             </section>
           </div>
+
+          <GeminiAiPanel />
 
           <section className="atelier-panel" aria-labelledby="lf-providers-heading">
             <div className="lf-providers-head">

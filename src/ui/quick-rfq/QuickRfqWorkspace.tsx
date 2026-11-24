@@ -44,6 +44,7 @@ import {
   type RfqApiError,
 } from './helpers';
 import { requestPhotoAnalysis } from '@/photo-analysis/client';
+import { GeminiAutofillCard } from './GeminiAutofillCard';
 import { MountingSection } from './MountingSection';
 import { PhotoAnalysisPanel, type PhotoAnalysisStatus } from './PhotoAnalysisPanel';
 import { PhotoManager } from './PhotoManager';
@@ -130,6 +131,7 @@ export function QuickRfqWorkspace({
   const [analysisStepSkipped, setAnalysisStepSkipped] = useState<boolean>(false);
   const analysisAbortRef = useRef<AbortController | null>(null);
   const analysisRequestIdRef = useRef<number>(0);
+  const [manualTouchedFields, setManualTouchedFields] = useState<Set<string>>(() => new Set());
 
   // Object URLs for uploaded photo thumbnails/previews — revoked cleanly on change/unmount
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
@@ -726,9 +728,40 @@ export function QuickRfqWorkspace({
       setNotesOpen(Boolean(next.project.notes));
       resetPreviewOutputs();
       resetPhotoAnalysis(next.project.photos.map(photo => photo.id));
+      setManualTouchedFields(new Set());
       showToast(message);
     },
     [guided, resetPhotoAnalysis, resetPreviewOutputs, showToast],
+  );
+
+  const handleApplyGeminiProject = useCallback(
+    async (nextProject: Project, message: string) => {
+      const updatedSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        project: {
+          ...nextProject,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+      setSnapshot(updatedSnapshot);
+      if (updatedSnapshot.project.notes) {
+        setNotesOpen(true);
+      }
+      try {
+        const store = await openProjectStore();
+        try {
+          await store.save(updatedSnapshot);
+          setLastSavedFingerprint(snapshotFingerprint(updatedSnapshot, 'en-zh'));
+          window.dispatchEvent(new Event('light-forge-project-saved'));
+        } finally {
+          store.close();
+        }
+      } catch {
+        // Keep updated state in memory even if IndexedDB is temporarily unavailable
+      }
+      showToast(message);
+    },
+    [showToast, snapshot],
   );
 
   const startNewProject = useCallback(() => {
@@ -1100,6 +1133,13 @@ export function QuickRfqWorkspace({
             onAcceptAllEmpty={handleAcceptAllEmpty}
           />
 
+          <GeminiAutofillCard
+            snapshot={snapshot}
+            selectedPhotoIds={selectedPhotoIds}
+            manualTouchedFields={manualTouchedFields}
+            onApplyProject={handleApplyGeminiProject}
+          />
+
           </div>
           <div className="lf-config-fields" hidden={guided && step !== 'product'}>
           {/* Step 3: Order & Core Project Parameters */}
@@ -1159,9 +1199,10 @@ export function QuickRfqWorkspace({
                     id="lf-project-kind"
                     className="lf-select"
                     value={snapshot.project.kind}
-                    onChange={event =>
-                      updateProject(p => ({ ...p, kind: event.target.value as ProductType }))
-                    }
+                    onChange={event => {
+                      setManualTouchedFields(prev => new Set(prev).add('kind'));
+                      updateProject(p => ({ ...p, kind: event.target.value as ProductType }));
+                    }}
                   >
                     {productTypeKeys.map(key => (
                       <option key={key} value={key}>
