@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { openProjectStore } from '@/storage/projects';
@@ -23,8 +24,6 @@ export function StudioNavigation({ children }: { children: ReactNode }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [recent, setRecent] = useState<{ id: string; name: string }>();
-  const editor = pathname === '/configure' || pathname === '/' || pathname === '/geometry' || pathname === '/search';
-  const target = editor ? '_blank' : undefined;
 
   useEffect(() => {
     try { setCollapsed(localStorage.getItem('light-forge-sidebar') === 'collapsed'); } catch {}
@@ -49,25 +48,25 @@ export function StudioNavigation({ children }: { children: ReactNode }) {
   }
 
   function links(mobile: boolean) {
+    const closeOnMobile = mobile ? () => dialog.current?.close() : undefined;
     return (
       <nav className="atelier-nav" aria-label="Разделы LIGHT FORGE">
         {sections.map(({ label, href, Icon }) => (
-          <a key={href} href={href} aria-current={href === pathname ? 'page' : undefined}
-            target={target} rel={editor ? 'noopener' : undefined}
-            aria-label={label} title={label} onClick={mobile ? () => dialog.current?.close() : undefined}>
+          <Link key={href} href={href} aria-current={href === pathname ? 'page' : undefined}
+            aria-label={label} title={label} onClick={closeOnMobile}>
             <Icon size={19} /><span>{label}</span>
-          </a>
+          </Link>
         ))}
-        <a href="/?new=1" target={target} rel={editor ? 'noopener' : undefined}
-          aria-label="Новый проект" title="Новый проект" onClick={mobile ? () => dialog.current?.close() : undefined}>
+        <Link href="/configure?new=1"
+          aria-label="Новый проект" title="Новый проект" onClick={closeOnMobile}>
           <PlusIcon size={19} /><span>Новый проект</span>
-        </a>
+        </Link>
         {recent && (
-          <a className="atelier-recent" href={'/?rfqProject=' + encodeURIComponent(recent.id)}
-            target={target} rel={editor ? 'noopener' : undefined} title="Последний проект"
-            aria-label={'Последний проект: ' + recent.name} onClick={mobile ? () => dialog.current?.close() : undefined}>
+          <Link className="atelier-recent" href={'/configure?rfqProject=' + encodeURIComponent(recent.id)}
+            title="Последний проект"
+            aria-label={'Последний проект: ' + recent.name} onClick={closeOnMobile}>
             <FolderIcon size={19} /><span><small>Последний проект</small>{recent.name}</span>
-          </a>
+          </Link>
         )}
       </nav>
     );
